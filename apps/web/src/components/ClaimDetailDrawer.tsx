@@ -131,7 +131,7 @@ export function ClaimDetailDrawer({
             {claim.adjudications.map((decision) => (
               <div key={`${decision.decidedAt}-${decision.decidedBy}`}>
                 <p className="drawer__description">
-                  <strong>{statusLabel(claim.status)}</strong> by {decision.decidedBy} on{' '}
+                  <strong>{statusLabel(decision.status)}</strong> by {decision.decidedBy} on{' '}
                   {formatDateTime(decision.decidedAt)} —{' '}
                   {formatCurrency(decision.approvedAmount, claim.currency)} approved.
                 </p>

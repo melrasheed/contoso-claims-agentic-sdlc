@@ -241,6 +241,7 @@ export function createSeedClaims(reference: Date = new Date()): Claim[] {
 
     if (template.adjudication) {
       claim.adjudication = {
+        status: template.status,
         decidedBy: template.adjudication.decidedBy,
         decidedAt: isoDaysAgo(reference, template.adjudication.decidedDaysAgo),
         rationale: template.adjudication.rationale,

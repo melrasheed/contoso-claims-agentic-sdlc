@@ -133,6 +133,7 @@ export class ClaimsRepository {
       status,
       updatedAt: timestamp,
       adjudication: {
+        status,
         decidedBy: input.decidedBy,
         decidedAt: timestamp,
         rationale: input.rationale,
@@ -141,6 +142,7 @@ export class ClaimsRepository {
       adjudications: [
         ...(existing.adjudications ?? (existing.adjudication ? [existing.adjudication] : [])),
         {
+          status,
           decidedBy: input.decidedBy,
           decidedAt: timestamp,
           rationale: input.rationale,

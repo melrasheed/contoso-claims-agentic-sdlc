@@ -26,6 +26,8 @@ export const CLAIM_ID_PREFIX = 'CLM-';
 
 /** Outcome recorded when a human (or agent) adjudicates a claim. */
 export interface Adjudication {
+  /** Claim status set by this decision. */
+  status: ClaimStatus;
   /** Display name or principal id of the adjudicator. */
   decidedBy: string;
   /** ISO-8601 timestamp of the decision. */
