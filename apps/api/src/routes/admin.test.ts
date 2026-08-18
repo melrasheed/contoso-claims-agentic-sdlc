@@ -138,5 +138,6 @@ describe('admin guard', () => {
     expect(loadConfig({ NODE_ENV: 'production' }).adminEnabled).toBe(false);
     expect(loadConfig({ NODE_ENV: 'development' }).adminEnabled).toBe(true);
     expect(loadConfig({ NODE_ENV: 'production', ADMIN_ENABLED: 'true' }).adminEnabled).toBe(true);
+    expect(loadConfig({ DUAL_APPROVAL_THRESHOLD: '60000' }).dualApprovalThreshold).toBe(60_000);
   });
 });

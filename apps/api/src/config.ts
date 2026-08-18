@@ -22,6 +22,8 @@ export interface AppConfig {
   faultMemoryChunkBytes: number;
   /** Upper bound on memory retained by the `memory` fault mode. */
   faultMemoryMaxBytes: number;
+  /** Claims above this requested amount require a second approval. */
+  dualApprovalThreshold: number;
 }
 
 const DEFAULT_CORS_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173'];
@@ -61,6 +63,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     defaultFaultDurationSeconds: parseInteger(env.FAULT_DEFAULT_DURATION_SECONDS, 300),
     faultMemoryChunkBytes: parseInteger(env.FAULT_MEMORY_CHUNK_MB, 8) * 1024 * 1024,
     faultMemoryMaxBytes: parseInteger(env.FAULT_MEMORY_MAX_MB, 256) * 1024 * 1024,
+    dualApprovalThreshold: parseInteger(env.DUAL_APPROVAL_THRESHOLD, 50_000),
   };
 }
 

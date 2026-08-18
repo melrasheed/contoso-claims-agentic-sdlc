@@ -17,6 +17,7 @@ import { faultInjection } from '../middleware/faultInjection.js';
 export interface ClaimsRouterDeps {
   repository: ClaimsRepository;
   faultController: FaultController;
+  dualApprovalThreshold: number;
 }
 
 function asyncHandler(handler: RequestHandler): RequestHandler {
@@ -28,6 +29,7 @@ function asyncHandler(handler: RequestHandler): RequestHandler {
 export function createClaimsRouter({
   repository,
   faultController,
+  dualApprovalThreshold,
 }: ClaimsRouterDeps): express.Router {
   const router = express.Router();
 
@@ -79,6 +81,14 @@ export function createClaimsRouter({
           `Claim ${id} cannot move from ${existing.status} to ${patch.status}.`,
         );
       }
+      if (
+        patch.status === 'approved' ||
+        patch.status === 'rejected' ||
+        patch.status === 'pending_second_approval' ||
+        existing.status === 'pending_second_approval'
+      ) {
+        throw ApiError.conflict('Adjudication decisions must be recorded through the adjudication endpoint.');
+      }
 
       const updated = repository.update(id, patch);
       if (!updated) throw ApiError.notFound(`Claim ${id} was not found.`);
@@ -100,6 +110,13 @@ export function createClaimsRouter({
         );
       }
 
+      if (existing.status === 'pending_second_approval') {
+        const firstApproval = existing.adjudication;
+        if (firstApproval?.decidedBy === input.decidedBy) {
+          throw ApiError.forbidden('The second approval must be made by a different adjudicator.');
+        }
+      }
+
       if (
         input.decision === 'approved' &&
         input.approvedAmount !== undefined &&
@@ -111,7 +128,13 @@ export function createClaimsRouter({
         );
       }
 
-      const updated = repository.adjudicate(id, input);
+      const status =
+        input.decision === 'approved' &&
+        existing.status !== 'pending_second_approval' &&
+        existing.amountRequested > dualApprovalThreshold
+          ? 'pending_second_approval'
+          : input.decision;
+      const updated = repository.adjudicate(id, input, status);
       if (!updated) throw ApiError.notFound(`Claim ${id} was not found.`);
       res.json(updated);
     }),

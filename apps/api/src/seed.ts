@@ -246,6 +246,7 @@ export function createSeedClaims(reference: Date = new Date()): Claim[] {
         rationale: template.adjudication.rationale,
         approvedAmount: template.adjudication.approvedAmount,
       };
+      claim.adjudications = [{ ...claim.adjudication }];
     }
 
     return claim;

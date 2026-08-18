@@ -193,6 +193,71 @@ describe('POST /api/claims/:id/adjudicate', () => {
       decidedBy: 'S. Okafor',
       approvedAmount: 4000,
     });
+
+    it('requires a second, different approval for claims above the configured threshold', async () => {
+      const highValueClaim = {
+        ...newClaim,
+        amountRequested: 50_001,
+        policyNumber: 'POL-999889',
+      };
+      const created = await request(app).post('/api/claims').send(highValueClaim);
+
+      const first = await request(app)
+        .post(`/api/claims/${created.body.id}/adjudicate`)
+        .send({ ...approval, approvedAmount: 50_001 });
+      expect(first.status).toBe(200);
+      expect(first.body.status).toBe('pending_second_approval');
+      expect(first.body.adjudications).toHaveLength(1);
+      expect(first.body.adjudications[0]).toMatchObject({
+        decidedBy: approval.decidedBy,
+        rationale: approval.rationale,
+        approvedAmount: 50_001,
+      });
+      expect(first.body.adjudications[0].decidedAt).toBeTruthy();
+
+      const sameApprover = await request(app)
+        .post(`/api/claims/${created.body.id}/adjudicate`)
+        .send({ ...approval, rationale: 'Second approval attempted by the original approver.' });
+      expect(sameApprover.status).toBe(403);
+
+      const unchanged = await request(app).get(`/api/claims/${created.body.id}`);
+      expect(unchanged.body.status).toBe('pending_second_approval');
+      expect(unchanged.body.adjudications).toHaveLength(1);
+
+      const second = await request(app)
+        .post(`/api/claims/${created.body.id}/adjudicate`)
+        .send({
+          ...approval,
+          decidedBy: 'R. Romero',
+          rationale: 'Second approval confirms the evidence and amount.',
+        });
+      expect(second.status).toBe(200);
+      expect(second.body.status).toBe('approved');
+      expect(second.body.adjudications).toHaveLength(2);
+      expect(second.body.adjudications.map((decision: { decidedBy: string }) => decision.decidedBy)).toEqual([
+        'S. Okafor',
+        'R. Romero',
+      ]);
+    });
+
+    it('uses the configured threshold and does not require a second approval at the threshold', async () => {
+      app = createApp({
+        config: loadConfig({ NODE_ENV: 'test', DUAL_APPROVAL_THRESHOLD: '1000' }),
+        logger: silentLogger,
+        repository,
+        faultController: new FaultController(),
+      });
+      const created = await request(app)
+        .post('/api/claims')
+        .send({ ...newClaim, amountRequested: 1000, policyNumber: 'POL-999890' });
+
+      const response = await request(app)
+        .post(`/api/claims/${created.body.id}/adjudicate`)
+        .send({ ...approval, approvedAmount: 1000 });
+
+      expect(response.status).toBe(200);
+      expect(response.body.status).toBe('approved');
+    });
     expect(response.body.adjudication.decidedAt).toBeTruthy();
   });
 

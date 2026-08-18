@@ -12,6 +12,7 @@ export const CLAIM_TYPES = ['auto', 'property', 'health', 'liability'] as const;
 export const CLAIM_STATUSES = [
   'submitted',
   'under_review',
+  'pending_second_approval',
   'approved',
   'rejected',
   'paid',
@@ -54,6 +55,8 @@ export interface Claim {
   createdAt: string;
   updatedAt: string;
   adjudication?: Adjudication;
+  /** Append-only record of every adjudication decision. */
+  adjudications?: readonly Adjudication[];
 }
 
 /** Filters accepted by the claim list endpoint. */

@@ -4,16 +4,17 @@ import type { ClaimStatus } from './types.js';
  * Claim lifecycle state machine.
  *
  * ```text
- * submitted ──▶ under_review ──▶ approved ──▶ paid
- *      │              │              │
- *      └──────────────┴──────────────┴──▶ rejected
+ * submitted ──▶ under_review ──▶ pending_second_approval ──▶ approved ──▶ paid
+ *      │              │                       │                    │
+ *      └──────────────┴───────────────────────┴────────────────────┴──▶ rejected
  * ```
  */
 export const STATUS_TRANSITIONS: Readonly<Record<ClaimStatus, readonly ClaimStatus[]>> =
   Object.freeze({
-    submitted: ['under_review', 'approved', 'rejected'],
-    under_review: ['approved', 'rejected'],
-    approved: ['paid', 'rejected'],
+    submitted: ['under_review', 'approved', 'rejected', 'pending_second_approval'],
+    under_review: ['approved', 'rejected', 'pending_second_approval'],
+    pending_second_approval: ['approved', 'rejected'],
+    approved: ['paid'],
     rejected: [],
     paid: [],
   });
@@ -28,6 +29,7 @@ export const TERMINAL_ADJUDICATION_STATUSES: readonly ClaimStatus[] = Object.fre
 export const OPEN_STATUSES: readonly ClaimStatus[] = Object.freeze([
   'submitted',
   'under_review',
+  'pending_second_approval',
 ]);
 
 /** Returns true when `to` is a legal next state for `from`. */
@@ -36,9 +38,8 @@ export function canTransition(from: ClaimStatus, to: ClaimStatus): boolean {
 }
 
 /**
- * A claim can only be adjudicated while it has not reached a terminal outcome.
- * Attempting to adjudicate a `paid` or `rejected` claim is a conflict.
+ * A claim can only be adjudicated while it is awaiting a decision.
  */
 export function canAdjudicate(status: ClaimStatus): boolean {
-  return !TERMINAL_ADJUDICATION_STATUSES.includes(status);
+  return OPEN_STATUSES.includes(status);
 }

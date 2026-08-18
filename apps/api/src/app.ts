@@ -58,7 +58,14 @@ export function createAppContext(options: CreateAppOptions = {}): AppContext {
     });
   });
 
-  app.use('/api/claims', createClaimsRouter({ repository, faultController: faults }));
+  app.use(
+    '/api/claims',
+    createClaimsRouter({
+      repository,
+      faultController: faults,
+      dualApprovalThreshold: config.dualApprovalThreshold,
+    }),
+  );
   app.use('/api/stats', createStatsRouter(repository));
   app.use('/api/admin', createAdminRouter({ faultController: faults, config, logger }));
 

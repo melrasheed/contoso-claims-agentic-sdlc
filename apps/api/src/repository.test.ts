@@ -63,6 +63,16 @@ describe('ClaimsRepository', () => {
     expect(repository.get(claim.id)?.status).not.toBe('paid');
   });
 
+  it('returns copies of the adjudication history', () => {
+    const decided = repository.list().find((claim) => claim.adjudications?.length);
+    if (!decided?.adjudications) throw new Error('expected adjudicated seeded claim');
+
+    decided.adjudications[0]!.rationale = 'Changed outside the repository';
+    expect(repository.get(decided.id)?.adjudications?.[0]?.rationale).not.toBe(
+      'Changed outside the repository',
+    );
+  });
+
   it('reports zeroed stats for an empty store', () => {
     const empty = new ClaimsRepository([]);
     const stats = empty.stats();

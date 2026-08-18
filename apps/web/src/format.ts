@@ -32,6 +32,7 @@ export function formatDateTime(iso: string): string {
 const STATUS_LABELS: Record<ClaimStatus, string> = {
   submitted: 'Submitted',
   under_review: 'Under review',
+  pending_second_approval: 'Pending second approval',
   approved: 'Approved',
   rejected: 'Rejected',
   paid: 'Paid',

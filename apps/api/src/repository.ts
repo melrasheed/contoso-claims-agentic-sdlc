@@ -33,7 +33,7 @@ export class ClaimsRepository {
 
   /** Replaces the contents of the store (used by tests and by the seeder). */
   reset(initial: Claim[] = createSeedClaims()): void {
-    this.#claims = new Map(initial.map((claim) => [claim.id, { ...claim }]));
+    this.#claims = new Map(initial.map((claim) => [claim.id, cloneClaim(claim)]));
     this.#sequence = initial.reduce((max, claim) => {
       const numeric = Number.parseInt(claim.id.replace(/\D/g, ''), 10);
       return Number.isFinite(numeric) ? Math.max(max, numeric) : max;
@@ -46,12 +46,12 @@ export class ClaimsRepository {
       .filter((claim) => (filter.status ? claim.status === filter.status : true))
       .filter((claim) => (filter.claimType ? claim.claimType === filter.claimType : true))
       .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
-      .map((claim) => ({ ...claim }));
+      .map(cloneClaim);
   }
 
   get(id: string): Claim | undefined {
     const claim = this.#claims.get(id);
-    return claim ? { ...claim } : undefined;
+    return claim ? cloneClaim(claim) : undefined;
   }
 
   create(input: CreateClaimInput, now: Date = new Date()): Claim {
@@ -79,7 +79,7 @@ export class ClaimsRepository {
     };
 
     this.#claims.set(claim.id, claim);
-    return { ...claim };
+    return cloneClaim(claim);
   }
 
   /**
@@ -111,13 +111,14 @@ export class ClaimsRepository {
     }
 
     this.#claims.set(id, updated);
-    return { ...updated };
+    return cloneClaim(updated);
   }
 
   /** Records an adjudication decision and moves the claim to its new status. */
   adjudicate(
     id: string,
     input: AdjudicateClaimInput,
+    status: ClaimStatus = input.decision,
     now: Date = new Date(),
   ): Claim | undefined {
     const existing = this.#claims.get(id);
@@ -129,7 +130,7 @@ export class ClaimsRepository {
 
     const updated: Claim = {
       ...existing,
-      status: input.decision,
+      status,
       updatedAt: timestamp,
       adjudication: {
         decidedBy: input.decidedBy,
@@ -137,10 +138,19 @@ export class ClaimsRepository {
         rationale: input.rationale,
         approvedAmount,
       },
+      adjudications: [
+        ...(existing.adjudications ?? (existing.adjudication ? [existing.adjudication] : [])),
+        {
+          decidedBy: input.decidedBy,
+          decidedAt: timestamp,
+          rationale: input.rationale,
+          approvedAmount,
+        },
+      ],
     };
 
     this.#claims.set(id, updated);
-    return { ...updated };
+    return cloneClaim(updated);
   }
 
   /** Portfolio aggregates used by the dashboard stat cards. */
@@ -190,3 +200,11 @@ function round2(value: number): number {
 
 /** Process-wide repository used by the running server. */
 export const claimsRepository = new ClaimsRepository();
+
+function cloneClaim(claim: Claim): Claim {
+  return {
+    ...claim,
+    adjudication: claim.adjudication ? { ...claim.adjudication } : undefined,
+    adjudications: claim.adjudications?.map((decision) => ({ ...decision })),
+  };
+}

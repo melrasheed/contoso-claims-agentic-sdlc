@@ -142,6 +142,8 @@ describe('workflow', () => {
   it('blocks adjudication of terminal claims', () => {
     expect(canAdjudicate('submitted')).toBe(true);
     expect(canAdjudicate('under_review')).toBe(true);
+    expect(canAdjudicate('pending_second_approval')).toBe(true);
+    expect(canAdjudicate('approved')).toBe(false);
     expect(canAdjudicate('paid')).toBe(false);
     expect(canAdjudicate('rejected')).toBe(false);
   });

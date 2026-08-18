@@ -45,7 +45,8 @@ export function ClaimDetailDrawer({
   const submit = (decision: 'approved' | 'rejected'): void => {
     const input: AdjudicateClaimInput = {
       decision,
-      decidedBy: DEFAULT_ADJUDICATOR,
+      decidedBy:
+        claim.status === 'pending_second_approval' ? 'Demo Second Approver' : DEFAULT_ADJUDICATOR,
       rationale:
         rationale.trim().length >= 5
           ? rationale.trim()
@@ -124,15 +125,19 @@ export function ClaimDetailDrawer({
           <p className="drawer__description">{claim.description}</p>
         </section>
 
-        {claim.adjudication ? (
+        {claim.adjudications?.length ? (
           <section className="drawer__section">
-            <h3>Adjudication</h3>
-            <p className="drawer__description">
-              <strong>{statusLabel(claim.status)}</strong> by {claim.adjudication.decidedBy} on{' '}
-              {formatDateTime(claim.adjudication.decidedAt)} —{' '}
-              {formatCurrency(claim.adjudication.approvedAmount, claim.currency)} approved.
-            </p>
-            <p className="drawer__description">{claim.adjudication.rationale}</p>
+            <h3>Adjudication history</h3>
+            {claim.adjudications.map((decision) => (
+              <div key={`${decision.decidedAt}-${decision.decidedBy}`}>
+                <p className="drawer__description">
+                  <strong>{statusLabel(claim.status)}</strong> by {decision.decidedBy} on{' '}
+                  {formatDateTime(decision.decidedAt)} —{' '}
+                  {formatCurrency(decision.approvedAmount, claim.currency)} approved.
+                </p>
+                <p className="drawer__description">{decision.rationale}</p>
+              </div>
+            ))}
           </section>
         ) : null}
 
