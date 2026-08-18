@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "7065919560778821448"
+      "templateHash": "2769458855048132"
     }
   },
   "parameters": {
@@ -421,7 +421,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.43.8.12551",
-              "templateHash": "2636304325998526367"
+              "templateHash": "15321483631142009538"
             }
           },
           "parameters": {
@@ -532,7 +532,7 @@
                 "httpsOnly": true,
                 "siteConfig": {
                   "linuxFxVersion": "NODE|20-lts",
-                  "appCommandLine": "node dist/index.js",
+                  "appCommandLine": "node dist/server.js",
                   "alwaysOn": true,
                   "ftpsState": "Disabled",
                   "minTlsVersion": "1.2",
@@ -588,7 +588,7 @@
                 "httpsOnly": true,
                 "siteConfig": {
                   "linuxFxVersion": "NODE|20-lts",
-                  "appCommandLine": "node dist/index.js",
+                  "appCommandLine": "node dist/server.js",
                   "alwaysOn": true,
                   "ftpsState": "Disabled",
                   "minTlsVersion": "1.2",
@@ -1001,6 +1001,12 @@
           "subscriptionId": {
             "value": "[subscription().subscriptionId]"
           },
+          "managedIdentityId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'identity'), '2025-04-01').outputs.identityId.value]"
+          },
+          "managedIdentityPrincipalId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'identity'), '2025-04-01').outputs.identityPrincipalId.value]"
+          },
           "appInsightsAppId": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'monitoring'), '2025-04-01').outputs.appInsightsAppId.value]"
           },
@@ -1036,7 +1042,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.43.8.12551",
-              "templateHash": "9110047299898917028"
+              "templateHash": "2772847048426434146"
             }
           },
           "parameters": {
@@ -1080,6 +1086,18 @@
               "type": "string",
               "metadata": {
                 "description": "Subscription ID that contains the target resource group."
+              }
+            },
+            "managedIdentityId": {
+              "type": "string",
+              "metadata": {
+                "description": "ARM resource ID of the user-assigned managed identity for the agent."
+              }
+            },
+            "managedIdentityPrincipalId": {
+              "type": "string",
+              "metadata": {
+                "description": "Principal ID of the user-assigned managed identity."
               }
             },
             "appInsightsAppId": {
@@ -1173,16 +1191,21 @@
               "location": "[parameters('location')]",
               "tags": "[parameters('tags')]",
               "identity": {
-                "type": "SystemAssigned"
+                "type": "SystemAssigned, UserAssigned",
+                "userAssignedIdentities": {
+                  "[format('{0}', parameters('managedIdentityId'))]": {}
+                }
               },
               "properties": {
                 "knowledgeGraphConfiguration": {
+                  "identity": "[parameters('managedIdentityId')]",
                   "managedResources": [
                     "[subscriptionResourceId(parameters('subscriptionId'), 'Microsoft.Resources/resourceGroups', parameters('targetResourceGroup'))]"
                   ]
                 },
                 "actionConfiguration": {
                   "accessLevel": "[parameters('accessLevel')]",
+                  "identity": "[parameters('managedIdentityId')]",
                   "mode": "[parameters('sreAgentMode')]"
                 },
                 "logConfiguration": {
@@ -1196,6 +1219,11 @@
                 "defaultModel": {
                   "provider": "[parameters('defaultModelProvider')]",
                   "name": "Automatic"
+                },
+                "experimentalSettings": {
+                  "EnableWorkspaceTools": true,
+                  "EnableHttpTriggers": true,
+                  "EnableV2AgentLoop": true
                 }
               }
             },
@@ -1206,12 +1234,9 @@
               "name": "[guid(resourceGroup().id, parameters('agentName'), '43d0d8ad-25c7-4714-9337-8ba259a9fe05')]",
               "properties": {
                 "roleDefinitionId": "[resourceId('Microsoft.Authorization/roleDefinitions', '43d0d8ad-25c7-4714-9337-8ba259a9fe05')]",
-                "principalId": "[reference(resourceId('Microsoft.App/agents', parameters('agentName')), '2025-05-01-preview', 'full').identity.principalId]",
+                "principalId": "[parameters('managedIdentityPrincipalId')]",
                 "principalType": "ServicePrincipal"
-              },
-              "dependsOn": [
-                "[resourceId('Microsoft.App/agents', parameters('agentName'))]"
-              ]
+              }
             },
             {
               "condition": "[and(not(parameters('skipRoleAssignments')), not(empty(parameters('deployerObjectId'))))]",
@@ -1223,6 +1248,21 @@
                 "roleDefinitionId": "[resourceId('Microsoft.Authorization/roleDefinitions', 'e79298df-d852-4c6d-84f9-5d13249d1e55')]",
                 "principalId": "[parameters('deployerObjectId')]",
                 "principalType": "User"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.App/agents', parameters('agentName'))]"
+              ]
+            },
+            {
+              "condition": "[not(parameters('skipRoleAssignments'))]",
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[resourceId('Microsoft.App/agents', parameters('agentName'))]",
+              "name": "[guid(resourceId('Microsoft.App/agents', parameters('agentName')), parameters('managedIdentityId'), 'e79298df-d852-4c6d-84f9-5d13249d1e55')]",
+              "properties": {
+                "roleDefinitionId": "[resourceId('Microsoft.Authorization/roleDefinitions', 'e79298df-d852-4c6d-84f9-5d13249d1e55')]",
+                "principalId": "[parameters('managedIdentityPrincipalId')]",
+                "principalType": "ServicePrincipal"
               },
               "dependsOn": [
                 "[resourceId('Microsoft.App/agents', parameters('agentName'))]"
@@ -1242,7 +1282,7 @@
                   },
                   "appId": "[parameters('appInsightsAppId')]"
                 },
-                "identity": "system"
+                "identity": "[parameters('managedIdentityId')]"
               },
               "dependsOn": [
                 "[resourceId('Microsoft.App/agents', parameters('agentName'))]"
@@ -1261,7 +1301,7 @@
                     "name": "[last(split(parameters('lawResourceId'), '/'))]"
                   }
                 },
-                "identity": "system"
+                "identity": "[parameters('managedIdentityId')]"
               },
               "dependsOn": [
                 "[resourceId('Microsoft.App/agents/connectors', parameters('agentName'), 'app-insights')]"
@@ -1272,6 +1312,84 @@
               "type": "Microsoft.Resources/deployments",
               "apiVersion": "2025-04-01",
               "name": "[format('rbac-target-{0}', uniqueString(deployment().name))]",
+              "subscriptionId": "[parameters('subscriptionId')]",
+              "resourceGroup": "[parameters('targetResourceGroup')]",
+              "properties": {
+                "expressionEvaluationOptions": {
+                  "scope": "inner"
+                },
+                "mode": "Incremental",
+                "parameters": {
+                  "principalId": {
+                    "value": "[parameters('managedIdentityPrincipalId')]"
+                  },
+                  "accessLevel": {
+                    "value": "[parameters('accessLevel')]"
+                  }
+                },
+                "template": {
+                  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                  "contentVersion": "1.0.0.0",
+                  "metadata": {
+                    "_generator": {
+                      "name": "bicep",
+                      "version": "0.43.8.12551",
+                      "templateHash": "12946865908670227090"
+                    }
+                  },
+                  "parameters": {
+                    "principalId": {
+                      "type": "string"
+                    },
+                    "accessLevel": {
+                      "type": "string",
+                      "allowedValues": [
+                        "Low",
+                        "High"
+                      ]
+                    }
+                  },
+                  "resources": [
+                    {
+                      "type": "Microsoft.Authorization/roleAssignments",
+                      "apiVersion": "2022-04-01",
+                      "name": "[guid(resourceGroup().id, parameters('principalId'), 'acdd72a7-3385-48ef-bd42-f606fba81ae7')]",
+                      "properties": {
+                        "roleDefinitionId": "[resourceId('Microsoft.Authorization/roleDefinitions', 'acdd72a7-3385-48ef-bd42-f606fba81ae7')]",
+                        "principalId": "[parameters('principalId')]",
+                        "principalType": "ServicePrincipal"
+                      }
+                    },
+                    {
+                      "type": "Microsoft.Authorization/roleAssignments",
+                      "apiVersion": "2022-04-01",
+                      "name": "[guid(resourceGroup().id, parameters('principalId'), '73c42c96-874c-492b-b04d-ab87d138a893')]",
+                      "properties": {
+                        "roleDefinitionId": "[resourceId('Microsoft.Authorization/roleDefinitions', '73c42c96-874c-492b-b04d-ab87d138a893')]",
+                        "principalId": "[parameters('principalId')]",
+                        "principalType": "ServicePrincipal"
+                      }
+                    },
+                    {
+                      "condition": "[equals(parameters('accessLevel'), 'High')]",
+                      "type": "Microsoft.Authorization/roleAssignments",
+                      "apiVersion": "2022-04-01",
+                      "name": "[guid(resourceGroup().id, parameters('principalId'), 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
+                      "properties": {
+                        "roleDefinitionId": "[resourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
+                        "principalId": "[parameters('principalId')]",
+                        "principalType": "ServicePrincipal"
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "condition": "[not(parameters('skipRoleAssignments'))]",
+              "type": "Microsoft.Resources/deployments",
+              "apiVersion": "2025-04-01",
+              "name": "[format('rbac-target-smi-{0}', uniqueString(deployment().name))]",
               "subscriptionId": "[parameters('subscriptionId')]",
               "resourceGroup": "[parameters('targetResourceGroup')]",
               "properties": {
@@ -1374,6 +1492,7 @@
         }
       },
       "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'identity')]",
         "[resourceId('Microsoft.Resources/deployments', 'monitoring')]"
       ]
     }

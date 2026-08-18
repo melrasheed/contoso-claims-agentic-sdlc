@@ -3,7 +3,7 @@
   "contentVersion": "1.0.0.0",
   "parameters": {
     "namePrefix": {
-      "value": "contoso"
+      "value": "asdlcmel"
     },
     "environmentName": {
       "value": "dev"
@@ -15,7 +15,7 @@
       "value": false
     },
     "adminEnabled": {
-      "value": false
+      "value": true
     },
     "alertEmailAddress": {
       "value": "ops-team@example.com"
@@ -30,7 +30,7 @@
       "value": true
     },
     "viteApiBaseUrl": {
-      "value": "https://contoso-api-dev.azurewebsites.net"
+      "value": "https://asdlcmel-api-dev.azurewebsites.net"
     }
   }
 }

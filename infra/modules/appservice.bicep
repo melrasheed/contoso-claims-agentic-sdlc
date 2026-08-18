@@ -90,7 +90,7 @@ resource apiWebApp 'Microsoft.Web/sites@2023-01-01' = {
     httpsOnly: true
     siteConfig: {
       linuxFxVersion: 'NODE|20-lts'
-      appCommandLine: 'node dist/index.js'
+      appCommandLine: 'node dist/server.js'
       alwaysOn: true // B1 and above all support AlwaysOn; Free/Shared (F1/D1) do not
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
@@ -145,7 +145,7 @@ resource apiStagingSlot 'Microsoft.Web/sites/slots@2023-01-01' = if (enableSlots
     httpsOnly: true
     siteConfig: {
       linuxFxVersion: 'NODE|20-lts'
-      appCommandLine: 'node dist/index.js'
+      appCommandLine: 'node dist/server.js'
       alwaysOn: true
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
@@ -244,3 +244,4 @@ output apiStagingHostname string = enableSlots ? (apiStagingSlot.?properties.def
 output webAppId string = webApp.id
 output webAppName string = webApp.name
 output webDefaultHostname string = webApp.properties.defaultHostName
+

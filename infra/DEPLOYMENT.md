@@ -218,7 +218,95 @@ repo root.
 
 ---
 
-## Teardown
+## SRE Agent Deployment
+
+Deployed on 2026-08-18 into `rg-agentic-sdlc-dev` alongside the main infrastructure.
+
+### Resource
+
+| Property | Value |
+|----------|-------|
+| **Name** | `asdlcmel-sre-agent-dev` |
+| **Type** | `Microsoft.App/agents` |
+| **API Version** | `2025-05-01-preview` |
+| **Mode** | `Review` (every action requires human approval — safe demo default) |
+| **Access Level** | `Low` (Reader + Log Analytics Reader on target RG) |
+| **Identity** | `SystemAssigned, UserAssigned` (`asdlcmel-id-dev` UAMI) |
+| **Provisioning State** | `Succeeded` |
+| **System MI Principal** | `42532753-f9ec-45a4-80d0-2558c4d16789` |
+| **Portal URL** | `https://sre.azure.com/#/agent/8327fd6b-.../rg-agentic-sdlc-dev/asdlcmel-sre-agent-dev` |
+
+### Deploy Command
+
+```powershell
+$deployerId = (az ad signed-in-user show --query id -o tsv)
+
+az deployment group create `
+  --resource-group rg-agentic-sdlc-dev `
+  --template-file infra/main.bicep `
+  --parameters infra/main.parameters.json `
+  --parameters enableSreAgent=true sreAgentMode=Review sreAgentDeployerObjectId=$deployerId
+```
+
+> ⚠ **COST WARNING**: The SRE Agent bills on consumed tokens (not per-hour). Deploy only for
+> live demos. Tear it down immediately after: the teardown command at the bottom of this file
+> deletes the entire RG including the agent. Token consumption accumulates whenever the agent
+> investigates an incident, even in Review mode (investigation costs tokens; approval is separate).
+
+### RBAC Granted (verified)
+
+All roles were created by the Bicep deployment. Confirmed via `az role assignment list`:
+
+| Role | Principal | Scope | Purpose |
+|------|-----------|-------|---------|
+| Reader | UAMI (`asdlcmel-id-dev`) | `rg-agentic-sdlc-dev` | Enumerate/describe resources |
+| Log Analytics Reader | UAMI | `rg-agentic-sdlc-dev` | Run KQL queries on LAW |
+| Monitoring Reader | UAMI | `rg-agentic-sdlc-dev` | Read metrics/alert rules |
+| Reader | System MI | `rg-agentic-sdlc-dev` | Connector KQL queries |
+| Log Analytics Reader | System MI | `rg-agentic-sdlc-dev` | Connector KQL queries |
+| SRE Agent Administrator | Deployer (you) | Agent resource | Open `sre.azure.com` portal |
+| SRE Agent Administrator | UAMI | Agent resource | Logic App webhook bridge |
+
+### What Bicep Does vs. What You Must Do in the Portal
+
+**Done by Bicep:**
+- Creates `Microsoft.App/agents` with `Review` mode and correct identity binding
+- Creates App Insights and Log Analytics ARM connectors (`Microsoft.App/agents/connectors`)
+- Grants all RBAC roles listed above
+- Grants deployer `SRE Agent Administrator` (so you can open `sre.azure.com`)
+
+**Must be done in the SRE Agent portal (`sre.azure.com`) — NOT expressible in ARM:**
+
+1. **GitHub connector**: Navigate to the agent → Connectors → Add GitHub.
+   Provide a GitHub PAT (scopes: `repo`, `read:org`) or use OAuth.
+   The agent uses this to open fix branches and file issues.
+
+2. **Azure DevOps connector**: Navigate to the agent → Connectors → Add Azure DevOps.
+   Provide a PAT or OAuth to `https://dev.azure.com/melrasheed`.
+   The agent uses this to create work items in `Agentic SDLC` project.
+
+3. **Per-tool Parameter Policy**: In the portal → Tools, review each tool's permission:
+   - `Allow` = executes without approval
+   - `Ask` = pauses for human approval (safe for destructive tools like restart/deploy)
+   Default in Review mode: most tools prompt. Review and harden before enabling Autonomous.
+
+4. **Test the agent**: From `sre.azure.com`, manually trigger an investigation by pointing it
+   at the `asdlcmel-alert-5xx-dev` alert. Verify it can query App Insights and produce a report.
+
+### Known Issue: Bicep `identity` field
+
+The `knowledgeGraphConfiguration.identity` and `actionConfiguration.identity` fields
+**must** be set to a user-assigned managed identity resource ID. Passing `''` (empty string)
+or omitting the field causes:
+
+```
+InvalidIdentity: The identity value '' of 'KnowledgeGraphConfiguration' is invalid:
+the referenced managed identity must be set in the agent.
+```
+
+This was discovered during deployment and fixed in `infra/modules/sre-agent.bicep`.
+
+---
 
 ```powershell
 .\infra\teardown.ps1 -EnvironmentName dev -NamePrefix asdlcmel
@@ -228,6 +316,34 @@ repo root.
 
 > **Note for SRE Agent demos:** The SRE Agent (`enableSreAgent=true`) is billed by token consumption.
 > Deploy it only for live demos and tear it down afterwards. See `infra/sre-agent-README.md`.
+
+---
+
+## Always On — Critical for Demo Credibility
+
+Both web apps have `alwaysOn: true` in `infra/modules/appservice.bicep`. **AlwaysOn IS
+supported on B1 and above; only Free/Shared (F1/D1) tiers restrict it.** The initial Bicep
+had this wrong (`effectiveSku != 'B1'`), which disabled AlwaysOn on B1.
+
+**Without AlwaysOn**: every cold start after idle triggers a ~4-minute tar extraction delay
+(Oryx repackages node_modules on first deploy as a `.tar.gz`, then re-extracts on each cold start).
+**With AlwaysOn**: the container stays warm and responds in ~1s.
+
+If after a fresh first deploy the API doesn't respond within 30s, wait 4 minutes — it's the
+one-time cold start. After that, AlwaysOn keeps it warm.
+
+---
+
+## Teardown
+
+```powershell
+.\infra\teardown.ps1 -EnvironmentName dev -NamePrefix asdlcmel
+# Prompts for confirmation. Add -Force to skip.
+# Deletes: rg-agentic-sdlc-dev and all resources in it, including the SRE Agent.
+```
+
+> **SRE Agent cost reminder**: tear down after every demo session. Token billing stops
+> immediately when the resource is deleted.
 
 ---
 

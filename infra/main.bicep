@@ -190,6 +190,8 @@ module sreAgentMod 'modules/sre-agent.bicep' = if (enableSreAgent) {
     tags: tags
     targetResourceGroup: resourceGroup().name
     subscriptionId: subscription().subscriptionId
+    managedIdentityId: identity.outputs.identityId
+    managedIdentityPrincipalId: identity.outputs.identityPrincipalId
     appInsightsAppId: monitoring.outputs.appInsightsAppId
     appInsightsResourceId: monitoring.outputs.appInsightsId
     appInsightsConnectionString: monitoring.outputs.appInsightsConnectionString
