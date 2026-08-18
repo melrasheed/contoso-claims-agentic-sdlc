@@ -173,10 +173,11 @@ Time estimates are for someone familiar with Azure and GitHub. Allow roughly dou
 
 - [ ] **5.5** Run the gate configuration script:
   ```powershell
+  $env:AZURE_DEVOPS_EXT_PAT = "<your-pat-with-environments-rw-scope>"
   .\pipelines\configure-checks.ps1 `
-      -Organization <your-org> `
-      -Project "<your-project>" `
-      -EnvironmentName prod
+      -OrgUrl "https://dev.azure.com/<your-org>" `
+      -ProjectId "<your-project-id>" `
+      -ProjectName "<your-project>"
   ```
 
 - [ ] **5.6** [PORTAL] Add the Query Work Items check to the `prod` environment:

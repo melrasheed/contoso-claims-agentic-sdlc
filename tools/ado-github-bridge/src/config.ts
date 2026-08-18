@@ -32,7 +32,11 @@ export interface BridgeConfig {
 
   /** When true, hand the created issue to the GitHub Copilot coding agent. */
   assignCopilot: boolean;
-  /** Azure Boards state to move the item to after a successful sync. */
+  /**
+   * Azure Boards state to move the item to after a successful sync.
+   * Leave unset to auto-detect from the project's process template - hardcoding
+   * a state name breaks on any process that does not use it.
+   */
   stateAfterSync?: string;
   /** Azure Boards state to move the item to when its PR merges. */
   stateAfterMerge?: string;
@@ -99,8 +103,11 @@ export function loadConfig(overrides: Partial<BridgeConfig> = {}): BridgeConfig 
         .filter(Boolean),
 
     assignCopilot: overrides.assignCopilot ?? boolean('BRIDGE_ASSIGN_COPILOT', true),
-    stateAfterSync: overrides.stateAfterSync ?? optional('BRIDGE_STATE_AFTER_SYNC') ?? 'Committed',
-    stateAfterMerge: overrides.stateAfterMerge ?? optional('BRIDGE_STATE_AFTER_MERGE') ?? 'Done',
+    // Deliberately no default: the correct state name depends on the project's
+    // process template, so it is resolved at run time. An explicit value here
+    // always wins.
+    stateAfterSync: overrides.stateAfterSync ?? optional('BRIDGE_STATE_AFTER_SYNC'),
+    stateAfterMerge: overrides.stateAfterMerge ?? optional('BRIDGE_STATE_AFTER_MERGE'),
 
     dryRun: overrides.dryRun ?? boolean('BRIDGE_DRY_RUN', false),
     maxItems: overrides.maxItems ?? integer('BRIDGE_MAX_ITEMS', 25),
@@ -120,8 +127,8 @@ export function describeConfig(config: BridgeConfig): Record<string, unknown> {
     syncedTag: config.syncedTag,
     issueLabels: config.issueLabels,
     assignCopilot: config.assignCopilot,
-    stateAfterSync: config.stateAfterSync,
-    stateAfterMerge: config.stateAfterMerge,
+    stateAfterSync: config.stateAfterSync ?? '(auto-detect from process template)',
+    stateAfterMerge: config.stateAfterMerge ?? '(not set)',
     dryRun: config.dryRun,
     maxItems: config.maxItems,
   };

@@ -90,11 +90,15 @@ Gates are configured on the **environment** in the Azure DevOps portal, not in Y
 ### Run configure-checks.ps1
 
 ```powershell
+$env:AZURE_DEVOPS_EXT_PAT = "<your-pat-with-environments-rw-scope>"
+
 .\pipelines\configure-checks.ps1 `
-    -Organization <your-ado-org> `
-    -Project "Agentic SDLC" `
-    -EnvironmentName prod
+    -OrgUrl "https://dev.azure.com/<your-org>" `
+    -ProjectId "<your-project-id>" `
+    -ProjectName "<your-project-name>"
 ```
+
+The script defaults are set to the reference implementation (`melrasheed/Agentic SDLC`). Override `-OrgUrl` and `-ProjectId` for your project. You can find the project ID in `https://dev.azure.com/<org>/_apis/projects?api-version=7.1`.
 
 This configures Business Hours and Exclusive Lock checks via the REST API.
 

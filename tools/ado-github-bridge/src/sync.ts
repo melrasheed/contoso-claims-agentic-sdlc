@@ -288,7 +288,7 @@ export class Bridge {
     }
     operations.push({ op: 'add', path: '/fields/System.Tags', value: tags.join('; ') });
 
-    const targetState = this.config.stateAfterSync;
+    const targetState = this.config.stateAfterSync ?? (await this.ado.resolveActiveState());
     if (targetState && AdoClient.field(workItem, 'System.State') !== targetState) {
       operations.push({ op: 'add', path: '/fields/System.State', value: targetState });
     }

@@ -1,0 +1,28 @@
+# CODEOWNERS — <APP_NAME> / Agentic SDLC Accelerator
+#
+# Replace <CODEOWNERS_TEAM> with real teams (e.g. @contoso/platform-team).
+# Paths listed later win.
+
+# Default owner for everything
+*                             <CODEOWNERS_TEAM>
+
+# Infrastructure and deployment
+/infra/                       <CODEOWNERS_TEAM>
+/pipelines/                   <CODEOWNERS_TEAM>
+/.github/workflows/           <CODEOWNERS_TEAM>
+
+# Agent fleet — changing an agent definition changes AI behaviour across the lifecycle.
+# Treat as a governance change, not a docs change.
+/.github/agents/              <CODEOWNERS_TEAM>
+/.github/copilot-instructions.md  <CODEOWNERS_TEAM>
+
+# Governance surfaces
+/.github/CODEOWNERS           <CODEOWNERS_TEAM>
+/.github/PULL_REQUEST_TEMPLATE.md <CODEOWNERS_TEAM>
+
+# ADO–GitHub bridge: bugs here break traceability and audit
+/tools/ado-github-bridge/     <CODEOWNERS_TEAM>
+
+# Security artefacts
+/docs/threat-models/          <CODEOWNERS_TEAM>
+/docs/05-security-model.md    <CODEOWNERS_TEAM>

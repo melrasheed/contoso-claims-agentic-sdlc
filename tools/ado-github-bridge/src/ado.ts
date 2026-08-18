@@ -43,6 +43,7 @@ export class AdoClient {
   private readonly pat: string | undefined;
   private credential: DefaultAzureCredential | undefined;
   private cachedToken: { token: string; expiresOn: number } | undefined;
+  private cachedActiveState: string | undefined;
 
   constructor(private readonly config: BridgeConfig) {
     this.baseUrl = `https://dev.azure.com/${encodeURIComponent(config.adoOrg)}`;
@@ -181,6 +182,56 @@ export class AdoClient {
       `${this.projectUrl}/_apis/wit/workItems/${id}/comments?api-version=7.1-preview.3`,
       { method: 'POST', body: JSON.stringify({ text }) },
     );
+  }
+
+  /**
+   * Resolve the "work in progress" state name for this project's process.
+   *
+   * The four system processes do not share state names: Basic uses
+   * To Do/Doing/Done, Agile uses New/Active/Closed, Scrum uses
+   * New/Approved/Committed/Done, CMMI uses Proposed/Active/Closed. Hardcoding
+   * one of them means the state transition silently fails everywhere else.
+   *
+   * Returns undefined when the process cannot be determined, in which case the
+   * caller should skip the transition rather than guess.
+   */
+  async resolveActiveState(): Promise<string | undefined> {
+    if (this.cachedActiveState !== undefined) {
+      return this.cachedActiveState || undefined;
+    }
+
+    try {
+      const project = await this.request<{
+        capabilities?: { processTemplate?: { templateName?: string } };
+      }>(
+        `${this.baseUrl}/_apis/projects/${encodeURIComponent(this.config.adoProject)}` +
+          `?includeCapabilities=true&api-version=${API_VERSION}`,
+      );
+
+      // capabilities.processTemplate is authoritative. The System.Process
+      // Template project property is not - it can report a different process
+      // entirely, which is why it is deliberately not used here.
+      const process = project.capabilities?.processTemplate?.templateName ?? '';
+      const byProcess: Record<string, string> = {
+        Basic: 'Doing',
+        Agile: 'Active',
+        Scrum: 'Committed',
+        CMMI: 'Active',
+      };
+
+      let state = byProcess[process];
+      if (!state) {
+        // Inherited processes are usually named after their parent.
+        const parent = Object.keys(byProcess).find((p) => process.includes(p));
+        state = parent ? byProcess[parent] : undefined;
+      }
+
+      this.cachedActiveState = state ?? '';
+      return state;
+    } catch {
+      this.cachedActiveState = '';
+      return undefined;
+    }
   }
 
   /** True when the work item already links to the given URL. */
