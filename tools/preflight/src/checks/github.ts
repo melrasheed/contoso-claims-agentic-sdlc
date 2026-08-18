@@ -59,6 +59,84 @@ export function evaluateTokenScopes(scopes: string[]): CheckResult {
   };
 }
 
+export interface BranchRule {
+  type: string;
+  parameters?: Record<string, unknown>;
+}
+
+/**
+ * Pure: grades branch protection from the effective rules returned by
+ * `GET /repos/{o}/{r}/rules/branches/{branch}` (rulesets API, covers both
+ * repo-level and org-level rulesets).  Falls back to the legacy shape when
+ * called with legacy data (has `required_pull_request_reviews`).
+ *
+ * Grading:
+ *   PASS  – a `pull_request` rule exists AND required_approving_review_count >= 1
+ *   WARN  – some rules exist but no PR review requirement (or count == 0)
+ *   FAIL  – no rules at all
+ */
+export function evaluateBranchRules(
+  rules: BranchRule[],
+  branch: string,
+  source: 'ruleset' | 'legacy'
+): CheckResult {
+  if (rules.length === 0) {
+    return {
+      id: 'github.branch-protection',
+      category: CATEGORY,
+      name: 'Default branch protected',
+      status: 'fail',
+      detail: `No branch protection or ruleset found on "${branch}" — agent PRs can merge without review`,
+      hint: `Add a branch ruleset at GitHub → Settings → Rules → Rulesets → New branch ruleset, targeting "${branch}". Require pull requests with at least 1 approval and a required status check.`
+    };
+  }
+
+  const prRule = rules.find((r) => r.type === 'pull_request');
+  const statusRule = rules.find((r) => r.type === 'required_status_checks');
+  const requiredCount =
+    typeof (prRule?.parameters as { required_approving_review_count?: unknown })
+      ?.required_approving_review_count === 'number'
+      ? ((prRule!.parameters as { required_approving_review_count: number }).required_approving_review_count)
+      : undefined;
+  const codeOwner = Boolean(
+    (prRule?.parameters as { require_code_owner_review?: unknown })?.require_code_owner_review
+  );
+  const statusContexts: string[] = (
+    (statusRule?.parameters as { required_status_checks?: Array<{ context?: string }> })
+      ?.required_status_checks ?? []
+  )
+    .map((s) => s.context)
+    .filter((c): c is string => Boolean(c));
+
+  const ruleTypes = rules.map((r) => r.type).join(', ');
+  const sourceLabel = source === 'ruleset' ? 'ruleset' : 'legacy branch protection';
+
+  if (!prRule || requiredCount === 0) {
+    return {
+      id: 'github.branch-protection',
+      category: CATEGORY,
+      name: 'Default branch protected',
+      status: 'warn',
+      detail: `"${branch}" has ${rules.length} rule(s) via ${sourceLabel} (${ruleTypes}) but no required PR review — merges can proceed without approval`,
+      hint: `Add a pull_request rule requiring at least 1 approving review at GitHub → Settings → Rules → Rulesets.`,
+      meta: { branch, source, ruleTypes, statusContexts }
+    };
+  }
+
+  const summaryParts = [`${requiredCount} approval(s) required`];
+  if (codeOwner) summaryParts.push('code-owner review required');
+  if (statusContexts.length > 0) summaryParts.push(`required status checks: [${statusContexts.join(', ')}]`);
+
+  return {
+    id: 'github.branch-protection',
+    category: CATEGORY,
+    name: 'Default branch protected',
+    status: 'pass',
+    detail: `"${branch}" protected via ${sourceLabel} — ${summaryParts.join(', ')}`,
+    meta: { branch, source, requiredApprovals: requiredCount, codeOwnerReview: codeOwner, statusContexts }
+  };
+}
+
 /** Pure: is the Copilot coding agent assignable on this repo? */
 export function evaluateCopilotActor(nodes: SuggestedActorNode[]): CheckResult {
   const logins = nodes.map((n) => n.login).filter((l): l is string => typeof l === 'string');
@@ -186,40 +264,63 @@ export async function runGitHubChecks(ctx: PreflightContext): Promise<CheckResul
 
   results.push(
     await safeCheck('github.branch-protection', CATEGORY, 'Default branch protected', async () => {
-      const { data, status, raw } = await ghJson<{ required_pull_request_reviews?: unknown; required_status_checks?: unknown }>([
+      // Query the rulesets API first — it returns effective rules from ALL sources
+      // (repository rulesets + org rulesets) and is the correct answer for "is this
+      // branch governed?".  The legacy /branches/{b}/protection endpoint returns 404
+      // when a ruleset (rather than a classic rule) is active, so checking only that
+      // endpoint produces false negatives on any modern protected repo.
+      const rulesRes = await ghJson<BranchRule[]>([
         'api',
-        `repos/${repoSlug}/branches/${defaultBranch}/protection`
+        `repos/${repoSlug}/rules/branches/${defaultBranch}`
       ]);
-      if (status === 404 || /Branch not protected/i.test(raw)) {
+
+      if (rulesRes.data && Array.isArray(rulesRes.data) && rulesRes.data.length > 0) {
+        return evaluateBranchRules(rulesRes.data, defaultBranch, 'ruleset');
+      }
+
+      // Fall back to the legacy branch-protection endpoint for classic rules.
+      const { data: legacyData, status: legacyStatus } = await ghJson<{
+        required_pull_request_reviews?: { required_approving_review_count?: number; require_code_owner_review?: boolean };
+        required_status_checks?: { contexts?: string[] };
+      }>(['api', `repos/${repoSlug}/branches/${defaultBranch}/protection`]);
+
+      if (legacyData?.required_pull_request_reviews !== undefined) {
+        const legacyRules: BranchRule[] = [
+          {
+            type: 'pull_request',
+            parameters: {
+              required_approving_review_count:
+                legacyData.required_pull_request_reviews.required_approving_review_count ?? 1,
+              require_code_owner_review:
+                legacyData.required_pull_request_reviews.require_code_owner_review ?? false
+            }
+          }
+        ];
+        if (legacyData.required_status_checks?.contexts?.length) {
+          legacyRules.push({
+            type: 'required_status_checks',
+            parameters: {
+              required_status_checks: legacyData.required_status_checks.contexts.map((c) => ({ context: c }))
+            }
+          });
+        }
+        return evaluateBranchRules(legacyRules, defaultBranch, 'legacy');
+      }
+
+      if (legacyStatus === 403) {
+        // 403 means protected but we lack admin access to read the rules.
         return {
           id: 'github.branch-protection',
           category: CATEGORY,
           name: 'Default branch protected',
           status: 'warn' as const,
-          detail: `No branch protection / ruleset on "${defaultBranch}" - agent PRs can merge without review`,
-          hint: `Add a ruleset at GitHub -> ${repoSlug} -> Settings -> Rules -> Rulesets -> New branch ruleset (require a pull request + status check "ci").`
+          detail: `"${defaultBranch}" appears protected but rule details require admin access`,
+          hint: `Ask a repo admin to confirm protection at GitHub → ${repoSlug} → Settings → Branches / Rules.`
         };
       }
-      if (!data) {
-        return {
-          id: 'github.branch-protection',
-          category: CATEGORY,
-          name: 'Default branch protected',
-          status: 'warn' as const,
-          detail: `Could not read branch protection for "${defaultBranch}" (admin permission required)`,
-          hint: `Check GitHub -> ${repoSlug} -> Settings -> Branches, or ask an admin to confirm protection on "${defaultBranch}".`
-        };
-      }
-      const reviews = Boolean(data.required_pull_request_reviews);
-      const statusChecks = Boolean(data.required_status_checks);
-      return {
-        id: 'github.branch-protection',
-        category: CATEGORY,
-        name: 'Default branch protected',
-        status: 'pass' as const,
-        detail: `"${defaultBranch}" protected (PR reviews: ${reviews ? 'yes' : 'no'}, required status checks: ${statusChecks ? 'yes' : 'no'})`,
-        meta: { defaultBranch, requiredReviews: reviews, requiredStatusChecks: statusChecks }
-      };
+
+      // Both endpoints returned nothing — no protection at all.
+      return evaluateBranchRules([], defaultBranch, 'ruleset');
     })
   );
 

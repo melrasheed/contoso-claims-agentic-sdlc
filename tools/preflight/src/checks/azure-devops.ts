@@ -108,8 +108,8 @@ export function compareProcessTemplate(
       category: CATEGORY,
       name: 'Process template',
       status: 'warn',
-      detail: `Process is "${capabilityTemplateName}" but the "System.Process Template" property resolves to "${propertyTemplateName}"`,
-      hint: 'Confirm the effective process at Azure DevOps -> Project settings -> Overview -> Process before relying on work item type names.',
+      detail: `Authoritative process (capabilities.processTemplate.templateName) is "${capabilityTemplateName}" but the legacy "System.Process Template" property resolves to "${propertyTemplateName}". Tooling that reads the legacy property will attempt to create work item types that do not exist in this project, producing "VS402323: Work item type <X> does not exist in project" errors.`,
+      hint: `Always use capabilities.processTemplate.templateName as the source of truth. For this project the valid work item types are only those returned by the "${capabilityTemplateName}" process. Ignore or discard the "System.Process Template" property value.`,
       meta: { capabilityTemplateName, propertyTemplateName }
     };
   }

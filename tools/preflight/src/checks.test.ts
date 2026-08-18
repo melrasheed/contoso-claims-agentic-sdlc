@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { compareProcessTemplate, buildAiReadyWiql, evaluateWorkItemTypes, resolveProcessTemplateName } from './checks/azure-devops.js';
 import { evaluateProviderState, evaluateRoles } from './checks/azure.js';
-import { evaluateCopilotActor, evaluateTokenScopes, parseTokenScopes } from './checks/github.js';
+import { evaluateBranchRules, evaluateCopilotActor, evaluateTokenScopes, parseTokenScopes, type BranchRule } from './checks/github.js';
 import { collectEntryUrls, evaluateMcpConfig } from './checks/mcp.js';
 import { evaluateAzLogin, evaluateNodeVersion, parseNodeMajor } from './checks/tooling.js';
 import { firstLine, redact } from './exec.js';
@@ -81,6 +81,66 @@ describe('github checks', () => {
   });
 });
 
+describe('branch protection / rulesets', () => {
+  const prRule: BranchRule = {
+    type: 'pull_request',
+    parameters: {
+      required_approving_review_count: 1,
+      dismiss_stale_reviews_on_push: true,
+      require_code_owner_review: true,
+      require_last_push_approval: true,
+      required_review_thread_resolution: true
+    }
+  };
+  const statusRule: BranchRule = {
+    type: 'required_status_checks',
+    parameters: { required_status_checks: [{ context: 'build-and-test' }] }
+  };
+  const deletionRule: BranchRule = { type: 'deletion' };
+
+  it('PASS when a PR rule with >=1 approval exists', () => {
+    const result = evaluateBranchRules([deletionRule, prRule, statusRule], 'main', 'ruleset');
+    expect(result.status).toBe('pass');
+    expect(result.detail).toContain('ruleset');
+    expect(result.detail).toContain('1 approval');
+    expect(result.detail).toContain('code-owner review required');
+    expect(result.detail).toContain('build-and-test');
+  });
+
+  it('PASS attributes source correctly for legacy protection', () => {
+    const result = evaluateBranchRules([prRule], 'main', 'legacy');
+    expect(result.status).toBe('pass');
+    expect(result.detail).toContain('legacy branch protection');
+  });
+
+  it('WARN when rules exist but no PR rule', () => {
+    const result = evaluateBranchRules([deletionRule, statusRule], 'main', 'ruleset');
+    expect(result.status).toBe('warn');
+    expect(result.hint).toContain('pull_request rule');
+  });
+
+  it('WARN when PR rule has required_approving_review_count === 0', () => {
+    const weakRule: BranchRule = {
+      type: 'pull_request',
+      parameters: { required_approving_review_count: 0 }
+    };
+    const result = evaluateBranchRules([weakRule], 'main', 'ruleset');
+    expect(result.status).toBe('warn');
+  });
+
+  it('FAIL when rules array is empty', () => {
+    const result = evaluateBranchRules([], 'main', 'ruleset');
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('No branch protection');
+    expect(result.hint).toContain('Rulesets');
+  });
+
+  it('surfaces required status check contexts in meta', () => {
+    const result = evaluateBranchRules([prRule, statusRule], 'main', 'ruleset');
+    expect((result.meta as { statusContexts?: string[] })?.statusContexts).toEqual(['build-and-test']);
+  });
+});
+
 describe('azure devops checks', () => {
   it('passes when capability and property agree', () => {
     expect(compareProcessTemplate('Basic', 'Basic').status).toBe('pass');
@@ -92,6 +152,8 @@ describe('azure devops checks', () => {
     expect(result.status).toBe('warn');
     expect(result.detail).toContain('Basic');
     expect(result.detail).toContain('Agile');
+    // The error string people will paste into a search engine must appear in the hint/detail.
+    expect(`${result.detail} ${result.hint ?? ''}`).toContain('VS402323');
   });
 
   it('warns when no template name is returned at all', () => {

@@ -171,13 +171,16 @@ export async function runAzureChecks(ctx: PreflightContext): Promise<CheckResult
           meta: { resourceGroup: ctx.resourceGroup, exists: true }
         };
       }
+      // Not existing before first deployment is the expected state on a fresh clone.
+      // Report as PASS with a note rather than WARN so pre-deployment environments
+      // don't produce false alarm warnings that train people to ignore the output.
       return {
         id: 'azure.resource-group',
         category: CATEGORY,
         name: 'Demo resource group',
-        status: 'warn' as const,
-        detail: `Resource group "${ctx.resourceGroup}" does not exist yet`,
-        hint: `Create it with \`az group create -n ${ctx.resourceGroup} -l westeurope\` (or set $env:DEMO_RESOURCE_GROUP to the one you use).`,
+        status: 'pass' as const,
+        detail: `Resource group "${ctx.resourceGroup}" not deployed yet (expected on a fresh clone)`,
+        hint: `When ready: \`az group create -n ${ctx.resourceGroup} -l westeurope\`, or set $env:DEMO_RESOURCE_GROUP to an existing group.`,
         meta: { resourceGroup: ctx.resourceGroup, exists: false }
       };
     })
