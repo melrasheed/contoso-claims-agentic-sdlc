@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "namePrefix": {
+      "value": "contoso"
+    },
+    "environmentName": {
+      "value": "dev"
+    },
+    "sku": {
+      "value": "B1"
+    },
+    "enableSlots": {
+      "value": false
+    },
+    "adminEnabled": {
+      "value": false
+    },
+    "alertEmailAddress": {
+      "value": "ops-team@example.com"
+    },
+    "http5xxThreshold": {
+      "value": 5
+    },
+    "responseTimeThresholdSeconds": {
+      "value": 3
+    },
+    "alertsEnabled": {
+      "value": true
+    },
+    "viteApiBaseUrl": {
+      "value": "https://contoso-api-dev.azurewebsites.net"
+    }
+  }
+}

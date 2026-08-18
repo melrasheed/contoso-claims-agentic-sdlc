@@ -1,0 +1,148 @@
+# =============================================================================
+# templates/deploy-job.yml — Bicep + App deployment (dev and non-prod)
+# =============================================================================
+parameters:
+  - name: environment
+    type: string
+  - name: azureServiceConnection
+    type: string
+  - name: artifactName
+    type: string
+    default: 'drop'
+  - name: subscriptionId
+    type: string
+  - name: resourceGroup
+    type: string
+  - name: location
+    type: string
+    default: 'eastus'
+  - name: namePrefix
+    type: string
+    default: 'contoso'
+  - name: environmentName
+    type: string
+    default: 'dev'
+  - name: enableSlots
+    type: boolean
+    default: false
+  - name: viteApiBaseUrl
+    type: string
+    default: ''
+  - name: alertEmail
+    type: string
+    default: 'ops-team@example.com'
+
+jobs:
+  - deployment: Deploy_${{ parameters.environment }}
+    displayName: 'Deploy to ${{ parameters.environment }}'
+    environment: ${{ parameters.environment }}
+    pool:
+      vmImage: 'ubuntu-latest'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - download: current
+              artifact: ${{ parameters.artifactName }}
+              displayName: 'Download build artifact'
+
+            # -----------------------------------------------------------------
+            # Deploy Bicep infrastructure
+            # -----------------------------------------------------------------
+            - task: AzureCLI@2
+              displayName: 'Deploy Bicep (az deployment group create)'
+              inputs:
+                azureSubscription: ${{ parameters.azureServiceConnection }}
+                scriptType: 'bash'
+                scriptLocation: 'inlineScript'
+                inlineScript: |
+                  set -euo pipefail
+
+                  RG="${{ parameters.resourceGroup }}"
+                  LOCATION="${{ parameters.location }}"
+                  BICEP_FILE="$(Pipeline.Workspace)/${{ parameters.artifactName }}/infra/main.bicep"
+                  PARAMS_FILE="$(Pipeline.Workspace)/${{ parameters.artifactName }}/infra/main.parameters.json"
+
+                  echo "==> Ensuring resource group: $RG in $LOCATION"
+                  az group create \
+                    --name "$RG" \
+                    --location "$LOCATION" \
+                    --subscription "${{ parameters.subscriptionId }}" \
+                    --tags "project=agentic-sdlc" "env=${{ parameters.environmentName }}" "managedBy=bicep" \
+                    --output none
+
+                  echo "==> Deploying Bicep..."
+                  az deployment group create \
+                    --name "pipeline-${{ parameters.environmentName }}-$(Build.BuildId)" \
+                    --resource-group "$RG" \
+                    --subscription "${{ parameters.subscriptionId }}" \
+                    --template-file "$BICEP_FILE" \
+                    --parameters "@$PARAMS_FILE" \
+                    --parameters \
+                      namePrefix="${{ parameters.namePrefix }}" \
+                      environmentName="${{ parameters.environmentName }}" \
+                      enableSlots="${{ lower(string(parameters.enableSlots)) }}" \
+                      viteApiBaseUrl="${{ parameters.viteApiBaseUrl }}" \
+                      alertEmailAddress="${{ parameters.alertEmail }}" \
+                    --output json \
+                    --query "properties.outputs"
+
+            # -----------------------------------------------------------------
+            # Deploy API to Web App
+            # -----------------------------------------------------------------
+            - task: AzureCLI@2
+              displayName: 'Deploy API to App Service'
+              inputs:
+                azureSubscription: ${{ parameters.azureServiceConnection }}
+                scriptType: 'bash'
+                scriptLocation: 'inlineScript'
+                inlineScript: |
+                  set -euo pipefail
+                  APP_NAME="${{ parameters.namePrefix }}-api-${{ parameters.environmentName }}"
+                  ARTIFACT_PATH="$(Pipeline.Workspace)/${{ parameters.artifactName }}/api"
+
+                  echo "==> Installing production dependencies in artifact..."
+                  cd "$ARTIFACT_PATH"
+                  npm ci --omit=dev
+
+                  echo "==> Zipping artifact..."
+                  zip -r /tmp/api.zip . -x "*.git*"
+
+                  echo "==> Deploying API to $APP_NAME..."
+                  az webapp deploy \
+                    --resource-group "${{ parameters.resourceGroup }}" \
+                    --name "$APP_NAME" \
+                    --src-path /tmp/api.zip \
+                    --type zip \
+                    --subscription "${{ parameters.subscriptionId }}"
+
+            # -----------------------------------------------------------------
+            # Deploy Web SPA to Web App
+            # -----------------------------------------------------------------
+            - task: AzureCLI@2
+              displayName: 'Deploy Web SPA to App Service'
+              inputs:
+                azureSubscription: ${{ parameters.azureServiceConnection }}
+                scriptType: 'bash'
+                scriptLocation: 'inlineScript'
+                inlineScript: |
+                  set -euo pipefail
+                  APP_NAME="${{ parameters.namePrefix }}-web-${{ parameters.environmentName }}"
+                  ARTIFACT_PATH="$(Pipeline.Workspace)/${{ parameters.artifactName }}/web"
+
+                  echo "==> Zipping web artifact..."
+                  cd "$ARTIFACT_PATH"
+                  # Create a minimal package.json so App Service can resolve `serve`
+                  if [ ! -f package.json ]; then
+                    echo '{"name":"web","version":"1.0.0"}' > package.json
+                  fi
+                  npm install serve --save --prefer-offline 2>/dev/null || true
+                  zip -r /tmp/web.zip . -x "*.git*"
+
+                  echo "==> Deploying Web to $APP_NAME..."
+                  az webapp deploy \
+                    --resource-group "${{ parameters.resourceGroup }}" \
+                    --name "$APP_NAME" \
+                    --src-path /tmp/web.zip \
+                    --type zip \
+                    --subscription "${{ parameters.subscriptionId }}"

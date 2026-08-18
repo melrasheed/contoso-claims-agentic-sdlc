@@ -1,0 +1,1500 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.43.8.12551",
+      "templateHash": "190527028972900651"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region. Defaults to the resource group location."
+      }
+    },
+    "namePrefix": {
+      "type": "string",
+      "defaultValue": "contoso",
+      "maxLength": 10,
+      "metadata": {
+        "description": "Short prefix used in all resource names (e.g. \"contoso\"). No special chars, max 10."
+      }
+    },
+    "environmentName": {
+      "type": "string",
+      "defaultValue": "dev",
+      "allowedValues": [
+        "dev",
+        "prod"
+      ],
+      "metadata": {
+        "description": "Environment label: dev or prod"
+      }
+    },
+    "sku": {
+      "type": "string",
+      "defaultValue": "B1",
+      "allowedValues": [
+        "B1",
+        "S1",
+        "P1v3"
+      ],
+      "metadata": {
+        "description": "Base SKU for App Service Plan. Overridden to S1 automatically if enableSlots=true."
+      }
+    },
+    "enableSlots": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Enable staging slot on API app (requires Standard tier; forces S1 minimum)."
+      }
+    },
+    "adminEnabled": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Enable the Node.js admin endpoint on the API app."
+      }
+    },
+    "alertEmailAddress": {
+      "type": "string",
+      "defaultValue": "ops-team@example.com",
+      "metadata": {
+        "description": "Ops team email for alert notifications."
+      }
+    },
+    "http5xxThreshold": {
+      "type": "int",
+      "defaultValue": 5,
+      "metadata": {
+        "description": "HTTP 5xx count threshold per 5-minute window before alerting."
+      }
+    },
+    "responseTimeThresholdSeconds": {
+      "type": "int",
+      "defaultValue": 3,
+      "metadata": {
+        "description": "Average response time threshold (seconds) before alerting."
+      }
+    },
+    "alertsEnabled": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Whether Azure Monitor alert rules are enabled."
+      }
+    },
+    "viteApiBaseUrl": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "API base URL for the SPA. Must be set as a pipeline variable before Vite build."
+      }
+    },
+    "enableSreAgent": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Enable the Azure SRE Agent. Default false — keeps base deployment cost-free."
+      }
+    },
+    "sreAgentMode": {
+      "type": "string",
+      "defaultValue": "Review",
+      "allowedValues": [
+        "Review",
+        "Automatic"
+      ],
+      "metadata": {
+        "description": "SRE Agent action mode. Review = human approves each action (safe demo default). Automatic = autonomous execution. WARNING: In Automatic mode, Ask-level tools execute WITHOUT approval."
+      }
+    },
+    "sreAgentAccessLevel": {
+      "type": "string",
+      "defaultValue": "Low",
+      "allowedValues": [
+        "Low",
+        "High"
+      ],
+      "metadata": {
+        "description": "SRE Agent access level on the monitored resource group. Low = Reader + Log Analytics Reader. High adds Contributor."
+      }
+    },
+    "sreAgentMonthlyUnitLimit": {
+      "type": "int",
+      "defaultValue": 10000,
+      "metadata": {
+        "description": "Monthly agent unit budget cap (token-based billing guard)."
+      }
+    },
+    "sreAgentSkipRbac": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Skip RBAC role assignments on SRE Agent re-deploy (avoids RoleAssignmentExists errors)."
+      }
+    },
+    "sreAgentDeployerObjectId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Object ID of the deployer (az ad signed-in-user show --query id -o tsv). Used to grant SRE Agent Administrator role. Leave empty to skip."
+      }
+    }
+  },
+  "variables": {
+    "tags": {
+      "project": "agentic-sdlc",
+      "env": "[parameters('environmentName')]",
+      "managedBy": "bicep"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "identity",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "namePrefix": {
+            "value": "[parameters('namePrefix')]"
+          },
+          "environmentName": {
+            "value": "[parameters('environmentName')]"
+          },
+          "tags": {
+            "value": "[variables('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.43.8.12551",
+              "templateHash": "5425826407586879505"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region for all resources"
+              }
+            },
+            "namePrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "Name prefix for resource naming"
+              }
+            },
+            "environmentName": {
+              "type": "string",
+              "metadata": {
+                "description": "Environment name (dev | prod)"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "metadata": {
+                "description": "Tags applied to all resources"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+              "apiVersion": "2023-01-31",
+              "name": "[format('{0}-id-{1}', parameters('namePrefix'), parameters('environmentName'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]"
+            }
+          ],
+          "outputs": {
+            "identityId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-{1}', parameters('namePrefix'), parameters('environmentName')))]"
+            },
+            "identityName": {
+              "type": "string",
+              "value": "[format('{0}-id-{1}', parameters('namePrefix'), parameters('environmentName'))]"
+            },
+            "identityPrincipalId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-{1}', parameters('namePrefix'), parameters('environmentName'))), '2023-01-31').principalId]"
+            },
+            "identityClientId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', format('{0}-id-{1}', parameters('namePrefix'), parameters('environmentName'))), '2023-01-31').clientId]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "monitoring",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "namePrefix": {
+            "value": "[parameters('namePrefix')]"
+          },
+          "environmentName": {
+            "value": "[parameters('environmentName')]"
+          },
+          "tags": {
+            "value": "[variables('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.43.8.12551",
+              "templateHash": "3272987388343796714"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region for all resources"
+              }
+            },
+            "namePrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "Name prefix for resource naming"
+              }
+            },
+            "environmentName": {
+              "type": "string",
+              "metadata": {
+                "description": "Environment name (dev | prod)"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "metadata": {
+                "description": "Tags applied to all resources"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.OperationalInsights/workspaces",
+              "apiVersion": "2022-10-01",
+              "name": "[format('{0}-law-{1}', parameters('namePrefix'), parameters('environmentName'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "sku": {
+                  "name": "PerGB2018"
+                },
+                "retentionInDays": 30,
+                "features": {
+                  "enableLogAccessUsingOnlyResourcePermissions": true
+                }
+              }
+            },
+            {
+              "type": "Microsoft.Insights/components",
+              "apiVersion": "2020-02-02",
+              "name": "[format('{0}-ai-{1}', parameters('namePrefix'), parameters('environmentName'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "kind": "web",
+              "properties": {
+                "Application_Type": "web",
+                "WorkspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', format('{0}-law-{1}', parameters('namePrefix'), parameters('environmentName')))]",
+                "RetentionInDays": 30,
+                "IngestionMode": "LogAnalytics",
+                "publicNetworkAccessForIngestion": "Enabled",
+                "publicNetworkAccessForQuery": "Enabled"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.OperationalInsights/workspaces', format('{0}-law-{1}', parameters('namePrefix'), parameters('environmentName')))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "logAnalyticsWorkspaceId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.OperationalInsights/workspaces', format('{0}-law-{1}', parameters('namePrefix'), parameters('environmentName')))]"
+            },
+            "logAnalyticsWorkspaceName": {
+              "type": "string",
+              "value": "[format('{0}-law-{1}', parameters('namePrefix'), parameters('environmentName'))]"
+            },
+            "appInsightsId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Insights/components', format('{0}-ai-{1}', parameters('namePrefix'), parameters('environmentName')))]"
+            },
+            "appInsightsName": {
+              "type": "string",
+              "value": "[format('{0}-ai-{1}', parameters('namePrefix'), parameters('environmentName'))]"
+            },
+            "appInsightsConnectionString": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Insights/components', format('{0}-ai-{1}', parameters('namePrefix'), parameters('environmentName'))), '2020-02-02').ConnectionString]"
+            },
+            "appInsightsInstrumentationKey": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Insights/components', format('{0}-ai-{1}', parameters('namePrefix'), parameters('environmentName'))), '2020-02-02').InstrumentationKey]"
+            },
+            "appInsightsAppId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Insights/components', format('{0}-ai-{1}', parameters('namePrefix'), parameters('environmentName'))), '2020-02-02').AppId]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "appservice",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "namePrefix": {
+            "value": "[parameters('namePrefix')]"
+          },
+          "environmentName": {
+            "value": "[parameters('environmentName')]"
+          },
+          "tags": {
+            "value": "[variables('tags')]"
+          },
+          "appInsightsConnectionString": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'monitoring'), '2025-04-01').outputs.appInsightsConnectionString.value]"
+          },
+          "managedIdentityId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'identity'), '2025-04-01').outputs.identityId.value]"
+          },
+          "viteApiBaseUrl": {
+            "value": "[parameters('viteApiBaseUrl')]"
+          },
+          "sku": {
+            "value": "[parameters('sku')]"
+          },
+          "enableSlots": {
+            "value": "[parameters('enableSlots')]"
+          },
+          "adminEnabled": {
+            "value": "[parameters('adminEnabled')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.43.8.12551",
+              "templateHash": "3184474000973892789"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region for all resources"
+              }
+            },
+            "namePrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "Name prefix for resource naming"
+              }
+            },
+            "environmentName": {
+              "type": "string",
+              "metadata": {
+                "description": "Environment name (dev | prod)"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "metadata": {
+                "description": "Tags applied to all resources"
+              }
+            },
+            "appInsightsConnectionString": {
+              "type": "string",
+              "metadata": {
+                "description": "App Insights connection string"
+              }
+            },
+            "managedIdentityId": {
+              "type": "string",
+              "metadata": {
+                "description": "User-assigned managed identity resource ID"
+              }
+            },
+            "viteApiBaseUrl": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Vite API base URL baked into the SPA at build time (document only — not injected at runtime)"
+              }
+            },
+            "sku": {
+              "type": "string",
+              "defaultValue": "B1",
+              "allowedValues": [
+                "B1",
+                "S1",
+                "P1v3"
+              ],
+              "metadata": {
+                "description": "Base SKU for the plan. When enableSlots=true this is overridden to S1."
+              }
+            },
+            "enableSlots": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Enable staging slot on API app (requires Standard or above; forces S1 minimum)"
+              }
+            },
+            "adminEnabled": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Node.js admin endpoint toggle"
+              }
+            }
+          },
+          "variables": {
+            "effectiveSku": "[if(and(parameters('enableSlots'), equals(parameters('sku'), 'B1')), 'S1', parameters('sku'))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Web/serverfarms",
+              "apiVersion": "2023-01-01",
+              "name": "[format('{0}-asp-{1}', parameters('namePrefix'), parameters('environmentName'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "kind": "linux",
+              "sku": {
+                "name": "[variables('effectiveSku')]",
+                "tier": "[if(equals(variables('effectiveSku'), 'B1'), 'Basic', if(equals(variables('effectiveSku'), 'S1'), 'Standard', 'PremiumV3'))]"
+              },
+              "properties": {
+                "reserved": true
+              }
+            },
+            {
+              "type": "Microsoft.Web/sites",
+              "apiVersion": "2023-01-01",
+              "name": "[format('{0}-api-{1}', parameters('namePrefix'), parameters('environmentName'))]",
+              "location": "[parameters('location')]",
+              "tags": "[union(parameters('tags'), createObject('app', 'api'))]",
+              "kind": "app,linux",
+              "identity": {
+                "type": "UserAssigned",
+                "userAssignedIdentities": {
+                  "[format('{0}', parameters('managedIdentityId'))]": {}
+                }
+              },
+              "properties": {
+                "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', format('{0}-asp-{1}', parameters('namePrefix'), parameters('environmentName')))]",
+                "httpsOnly": true,
+                "siteConfig": {
+                  "linuxFxVersion": "NODE|20-lts",
+                  "appCommandLine": "node dist/index.js",
+                  "alwaysOn": "[not(equals(variables('effectiveSku'), 'B1'))]",
+                  "ftpsState": "Disabled",
+                  "minTlsVersion": "1.2",
+                  "http20Enabled": true,
+                  "appSettings": [
+                    {
+                      "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+                      "value": "[parameters('appInsightsConnectionString')]"
+                    },
+                    {
+                      "name": "ApplicationInsightsAgent_EXTENSION_VERSION",
+                      "value": "~3"
+                    },
+                    {
+                      "name": "NODE_ENV",
+                      "value": "[parameters('environmentName')]"
+                    },
+                    {
+                      "name": "ADMIN_ENABLED",
+                      "value": "[if(parameters('adminEnabled'), 'true', 'false')]"
+                    },
+                    {
+                      "name": "WEBSITE_NODE_DEFAULT_VERSION",
+                      "value": "~20"
+                    },
+                    {
+                      "name": "SCM_DO_BUILD_DURING_DEPLOYMENT",
+                      "value": "false"
+                    }
+                  ]
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/serverfarms', format('{0}-asp-{1}', parameters('namePrefix'), parameters('environmentName')))]"
+              ]
+            },
+            {
+              "condition": "[parameters('enableSlots')]",
+              "type": "Microsoft.Web/sites/slots",
+              "apiVersion": "2023-01-01",
+              "name": "[format('{0}/{1}', format('{0}-api-{1}', parameters('namePrefix'), parameters('environmentName')), 'staging')]",
+              "location": "[parameters('location')]",
+              "tags": "[union(parameters('tags'), createObject('app', 'api', 'slot', 'staging'))]",
+              "kind": "app,linux",
+              "identity": {
+                "type": "UserAssigned",
+                "userAssignedIdentities": {
+                  "[format('{0}', parameters('managedIdentityId'))]": {}
+                }
+              },
+              "properties": {
+                "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', format('{0}-asp-{1}', parameters('namePrefix'), parameters('environmentName')))]",
+                "httpsOnly": true,
+                "siteConfig": {
+                  "linuxFxVersion": "NODE|20-lts",
+                  "appCommandLine": "node dist/index.js",
+                  "alwaysOn": true,
+                  "ftpsState": "Disabled",
+                  "minTlsVersion": "1.2",
+                  "http20Enabled": true,
+                  "appSettings": [
+                    {
+                      "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+                      "value": "[parameters('appInsightsConnectionString')]"
+                    },
+                    {
+                      "name": "ApplicationInsightsAgent_EXTENSION_VERSION",
+                      "value": "~3"
+                    },
+                    {
+                      "name": "NODE_ENV",
+                      "value": "staging"
+                    },
+                    {
+                      "name": "ADMIN_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "WEBSITE_NODE_DEFAULT_VERSION",
+                      "value": "~20"
+                    },
+                    {
+                      "name": "SCM_DO_BUILD_DURING_DEPLOYMENT",
+                      "value": "false"
+                    }
+                  ]
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', format('{0}-api-{1}', parameters('namePrefix'), parameters('environmentName')))]",
+                "[resourceId('Microsoft.Web/serverfarms', format('{0}-asp-{1}', parameters('namePrefix'), parameters('environmentName')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Web/sites",
+              "apiVersion": "2023-01-01",
+              "name": "[format('{0}-web-{1}', parameters('namePrefix'), parameters('environmentName'))]",
+              "location": "[parameters('location')]",
+              "tags": "[union(parameters('tags'), createObject('app', 'web'))]",
+              "kind": "app,linux",
+              "identity": {
+                "type": "UserAssigned",
+                "userAssignedIdentities": {
+                  "[format('{0}', parameters('managedIdentityId'))]": {}
+                }
+              },
+              "properties": {
+                "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', format('{0}-asp-{1}', parameters('namePrefix'), parameters('environmentName')))]",
+                "httpsOnly": true,
+                "siteConfig": {
+                  "linuxFxVersion": "NODE|20-lts",
+                  "appCommandLine": "npx serve dist -s -l $PORT",
+                  "alwaysOn": "[not(equals(variables('effectiveSku'), 'B1'))]",
+                  "ftpsState": "Disabled",
+                  "minTlsVersion": "1.2",
+                  "http20Enabled": true,
+                  "appSettings": [
+                    {
+                      "name": "VITE_API_BASE_URL",
+                      "value": "[parameters('viteApiBaseUrl')]"
+                    },
+                    {
+                      "name": "WEBSITE_NODE_DEFAULT_VERSION",
+                      "value": "~20"
+                    },
+                    {
+                      "name": "SCM_DO_BUILD_DURING_DEPLOYMENT",
+                      "value": "false"
+                    }
+                  ]
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/serverfarms', format('{0}-asp-{1}', parameters('namePrefix'), parameters('environmentName')))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "appServicePlanId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Web/serverfarms', format('{0}-asp-{1}', parameters('namePrefix'), parameters('environmentName')))]"
+            },
+            "appServicePlanName": {
+              "type": "string",
+              "value": "[format('{0}-asp-{1}', parameters('namePrefix'), parameters('environmentName'))]"
+            },
+            "effectiveSku": {
+              "type": "string",
+              "value": "[variables('effectiveSku')]"
+            },
+            "apiWebAppId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Web/sites', format('{0}-api-{1}', parameters('namePrefix'), parameters('environmentName')))]"
+            },
+            "apiWebAppName": {
+              "type": "string",
+              "value": "[format('{0}-api-{1}', parameters('namePrefix'), parameters('environmentName'))]"
+            },
+            "apiDefaultHostname": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Web/sites', format('{0}-api-{1}', parameters('namePrefix'), parameters('environmentName'))), '2023-01-01').defaultHostName]"
+            },
+            "apiStagingHostname": {
+              "type": "string",
+              "value": "[if(parameters('enableSlots'), coalesce(tryGet(if(parameters('enableSlots'), reference(resourceId('Microsoft.Web/sites/slots', format('{0}-api-{1}', parameters('namePrefix'), parameters('environmentName')), 'staging'), '2023-01-01', 'full'), null()), 'properties', 'defaultHostName'), ''), '')]"
+            },
+            "webAppId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Web/sites', format('{0}-web-{1}', parameters('namePrefix'), parameters('environmentName')))]"
+            },
+            "webAppName": {
+              "type": "string",
+              "value": "[format('{0}-web-{1}', parameters('namePrefix'), parameters('environmentName'))]"
+            },
+            "webDefaultHostname": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Web/sites', format('{0}-web-{1}', parameters('namePrefix'), parameters('environmentName'))), '2023-01-01').defaultHostName]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'identity')]",
+        "[resourceId('Microsoft.Resources/deployments', 'monitoring')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "alerts",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "namePrefix": {
+            "value": "[parameters('namePrefix')]"
+          },
+          "environmentName": {
+            "value": "[parameters('environmentName')]"
+          },
+          "tags": {
+            "value": "[variables('tags')]"
+          },
+          "apiWebAppId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appservice'), '2025-04-01').outputs.apiWebAppId.value]"
+          },
+          "appInsightsId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'monitoring'), '2025-04-01').outputs.appInsightsId.value]"
+          },
+          "alertEmailAddress": {
+            "value": "[parameters('alertEmailAddress')]"
+          },
+          "http5xxThreshold": {
+            "value": "[parameters('http5xxThreshold')]"
+          },
+          "responseTimeThresholdSeconds": {
+            "value": "[parameters('responseTimeThresholdSeconds')]"
+          },
+          "alertsEnabled": {
+            "value": "[parameters('alertsEnabled')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.43.8.12551",
+              "templateHash": "4899646800439306121"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region for all resources — reserved for future use (Action Group is global)"
+              }
+            },
+            "namePrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "Name prefix for resource naming"
+              }
+            },
+            "environmentName": {
+              "type": "string",
+              "metadata": {
+                "description": "Environment name (dev | prod)"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "metadata": {
+                "description": "Tags applied to all resources"
+              }
+            },
+            "apiWebAppId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the API web app to monitor"
+              }
+            },
+            "appInsightsId": {
+              "type": "string",
+              "metadata": {
+                "description": "App Insights resource ID — reserved for log-based alert scoping in future iterations"
+              }
+            },
+            "alertEmailAddress": {
+              "type": "string",
+              "defaultValue": "ops-team@example.com",
+              "metadata": {
+                "description": "Alert notification email address"
+              }
+            },
+            "http5xxThreshold": {
+              "type": "int",
+              "defaultValue": 5,
+              "metadata": {
+                "description": "HTTP 5xx count threshold to trigger alert"
+              }
+            },
+            "responseTimeThresholdSeconds": {
+              "type": "int",
+              "defaultValue": 3,
+              "metadata": {
+                "description": "Response time threshold in seconds (average) to trigger alert"
+              }
+            },
+            "alertsEnabled": {
+              "type": "bool",
+              "defaultValue": true,
+              "metadata": {
+                "description": "Whether alert rules are enabled"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Insights/actionGroups",
+              "apiVersion": "2023-01-01",
+              "name": "[format('{0}-ag-{1}', parameters('namePrefix'), parameters('environmentName'))]",
+              "location": "global",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "groupShortName": "SREAlerts",
+                "enabled": "[parameters('alertsEnabled')]",
+                "emailReceivers": [
+                  {
+                    "name": "OpsTeam",
+                    "emailAddress": "[parameters('alertEmailAddress')]",
+                    "useCommonAlertSchema": true
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Insights/metricAlerts",
+              "apiVersion": "2018-03-01",
+              "name": "[format('{0}-alert-5xx-{1}', parameters('namePrefix'), parameters('environmentName'))]",
+              "location": "global",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "description": "API HTTP 5xx response count exceeded threshold — potential application failure",
+                "severity": 1,
+                "enabled": "[parameters('alertsEnabled')]",
+                "scopes": [
+                  "[parameters('apiWebAppId')]"
+                ],
+                "evaluationFrequency": "PT1M",
+                "windowSize": "PT5M",
+                "criteria": {
+                  "odata.type": "Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria",
+                  "allOf": [
+                    {
+                      "name": "Http5xxCount",
+                      "criterionType": "StaticThresholdCriterion",
+                      "metricName": "Http5xx",
+                      "metricNamespace": "Microsoft.Web/sites",
+                      "operator": "GreaterThan",
+                      "threshold": "[parameters('http5xxThreshold')]",
+                      "timeAggregation": "Total"
+                    }
+                  ]
+                },
+                "actions": [
+                  {
+                    "actionGroupId": "[resourceId('Microsoft.Insights/actionGroups', format('{0}-ag-{1}', parameters('namePrefix'), parameters('environmentName')))]"
+                  }
+                ],
+                "autoMitigate": true
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Insights/actionGroups', format('{0}-ag-{1}', parameters('namePrefix'), parameters('environmentName')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Insights/metricAlerts",
+              "apiVersion": "2018-03-01",
+              "name": "[format('{0}-alert-responsetime-{1}', parameters('namePrefix'), parameters('environmentName'))]",
+              "location": "global",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "description": "[format('API average response time exceeded {0}s — potential performance degradation', parameters('responseTimeThresholdSeconds'))]",
+                "severity": 2,
+                "enabled": "[parameters('alertsEnabled')]",
+                "scopes": [
+                  "[parameters('apiWebAppId')]"
+                ],
+                "evaluationFrequency": "PT1M",
+                "windowSize": "PT5M",
+                "criteria": {
+                  "odata.type": "Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria",
+                  "allOf": [
+                    {
+                      "name": "AverageResponseTime",
+                      "criterionType": "StaticThresholdCriterion",
+                      "metricName": "AverageResponseTime",
+                      "metricNamespace": "Microsoft.Web/sites",
+                      "operator": "GreaterThan",
+                      "threshold": "[parameters('responseTimeThresholdSeconds')]",
+                      "timeAggregation": "Average"
+                    }
+                  ]
+                },
+                "actions": [
+                  {
+                    "actionGroupId": "[resourceId('Microsoft.Insights/actionGroups', format('{0}-ag-{1}', parameters('namePrefix'), parameters('environmentName')))]"
+                  }
+                ],
+                "autoMitigate": true
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Insights/actionGroups', format('{0}-ag-{1}', parameters('namePrefix'), parameters('environmentName')))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "actionGroupId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Insights/actionGroups', format('{0}-ag-{1}', parameters('namePrefix'), parameters('environmentName')))]"
+            },
+            "actionGroupName": {
+              "type": "string",
+              "value": "[format('{0}-ag-{1}', parameters('namePrefix'), parameters('environmentName'))]"
+            },
+            "alert5xxId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Insights/metricAlerts', format('{0}-alert-5xx-{1}', parameters('namePrefix'), parameters('environmentName')))]"
+            },
+            "alert5xxName": {
+              "type": "string",
+              "value": "[format('{0}-alert-5xx-{1}', parameters('namePrefix'), parameters('environmentName'))]"
+            },
+            "alertResponseTimeId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Insights/metricAlerts', format('{0}-alert-responsetime-{1}', parameters('namePrefix'), parameters('environmentName')))]"
+            },
+            "alertResponseTimeName": {
+              "type": "string",
+              "value": "[format('{0}-alert-responsetime-{1}', parameters('namePrefix'), parameters('environmentName'))]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'appservice')]",
+        "[resourceId('Microsoft.Resources/deployments', 'monitoring')]"
+      ]
+    },
+    {
+      "condition": "[parameters('enableSreAgent')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "sre-agent",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "agentName": {
+            "value": "[format('{0}-sre-agent-{1}', parameters('namePrefix'), parameters('environmentName'))]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "namePrefix": {
+            "value": "[parameters('namePrefix')]"
+          },
+          "environmentName": {
+            "value": "[parameters('environmentName')]"
+          },
+          "tags": {
+            "value": "[variables('tags')]"
+          },
+          "targetResourceGroup": {
+            "value": "[resourceGroup().name]"
+          },
+          "subscriptionId": {
+            "value": "[subscription().subscriptionId]"
+          },
+          "appInsightsAppId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'monitoring'), '2025-04-01').outputs.appInsightsAppId.value]"
+          },
+          "appInsightsResourceId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'monitoring'), '2025-04-01').outputs.appInsightsId.value]"
+          },
+          "appInsightsConnectionString": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'monitoring'), '2025-04-01').outputs.appInsightsConnectionString.value]"
+          },
+          "lawResourceId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'monitoring'), '2025-04-01').outputs.logAnalyticsWorkspaceId.value]"
+          },
+          "accessLevel": {
+            "value": "[parameters('sreAgentAccessLevel')]"
+          },
+          "sreAgentMode": {
+            "value": "[parameters('sreAgentMode')]"
+          },
+          "monthlyAgentUnitLimit": {
+            "value": "[parameters('sreAgentMonthlyUnitLimit')]"
+          },
+          "skipRoleAssignments": {
+            "value": "[parameters('sreAgentSkipRbac')]"
+          },
+          "deployerObjectId": {
+            "value": "[parameters('sreAgentDeployerObjectId')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.43.8.12551",
+              "templateHash": "7085568170033147504"
+            }
+          },
+          "parameters": {
+            "agentName": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource name of the SRE Agent (matches pattern ^[A-Za-z]([-A-Za-z0-9]{0,30}[A-Za-z0-9])$)."
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region."
+              }
+            },
+            "namePrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "Name prefix (informational — passed for naming consistency with other modules)."
+              }
+            },
+            "environmentName": {
+              "type": "string",
+              "metadata": {
+                "description": "Environment name (informational — passed for naming consistency)."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "metadata": {
+                "description": "Tags applied to the agent resource."
+              }
+            },
+            "targetResourceGroup": {
+              "type": "string",
+              "metadata": {
+                "description": "Target resource group name that the agent monitors."
+              }
+            },
+            "subscriptionId": {
+              "type": "string",
+              "metadata": {
+                "description": "Subscription ID that contains the target resource group."
+              }
+            },
+            "appInsightsAppId": {
+              "type": "string",
+              "metadata": {
+                "description": "App Insights Application ID GUID (properties.AppId — the GUID shown under Overview in the portal, used for KQL queries)."
+              }
+            },
+            "appInsightsResourceId": {
+              "type": "string",
+              "metadata": {
+                "description": "App Insights ARM resource ID."
+              }
+            },
+            "appInsightsConnectionString": {
+              "type": "securestring",
+              "metadata": {
+                "description": "App Insights connection string (sensitive)."
+              }
+            },
+            "lawResourceId": {
+              "type": "string",
+              "metadata": {
+                "description": "Log Analytics workspace ARM resource ID."
+              }
+            },
+            "accessLevel": {
+              "type": "string",
+              "defaultValue": "Low",
+              "allowedValues": [
+                "Low",
+                "High"
+              ],
+              "metadata": {
+                "description": "Access level. Low = Reader + Log Analytics Reader (safe demo default). High adds Contributor on the target RG."
+              }
+            },
+            "sreAgentMode": {
+              "type": "string",
+              "defaultValue": "Review",
+              "allowedValues": [
+                "Review",
+                "Automatic"
+              ],
+              "metadata": {
+                "description": "Agent action mode.\nReview    — every action requires human approval in the portal. SAFE DEFAULT for demos.\nAutomatic — agent executes autonomously without per-action approval.\n⚠ WARNING: In Automatic mode, tools with \"Ask\" permission in the per-tool\nParameter Policy will EXECUTE WITHOUT human approval. This is a genuine\nsecurity and blast-radius risk. Do NOT set Automatic until every tool's\npolicy has been reviewed and explicitly configured in the SRE Agent portal.\n"
+              }
+            },
+            "monthlyAgentUnitLimit": {
+              "type": "int",
+              "defaultValue": 10000,
+              "metadata": {
+                "description": "Monthly agent unit budget cap. Bills per consumed token — use this guard to cap demo costs."
+              }
+            },
+            "upgradeChannel": {
+              "type": "string",
+              "defaultValue": "Preview",
+              "allowedValues": [
+                "Stable",
+                "Preview"
+              ]
+            },
+            "defaultModelProvider": {
+              "type": "string",
+              "defaultValue": "MicrosoftFoundry",
+              "metadata": {
+                "description": "Default AI model provider."
+              }
+            },
+            "skipRoleAssignments": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Skip RBAC role assignments (use on re-deploy to avoid RoleAssignmentExists errors)."
+              }
+            },
+            "deployerObjectId": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Object ID of the user or service principal running this deployment. If provided, grants SRE Agent Administrator on the agent so the deployer can open it in https://sre.azure.com. Leave empty to skip."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.App/agents",
+              "apiVersion": "2025-05-01-preview",
+              "name": "[parameters('agentName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "identity": {
+                "type": "SystemAssigned"
+              },
+              "properties": {
+                "knowledgeGraphConfiguration": {
+                  "managedResources": [
+                    "[subscriptionResourceId(parameters('subscriptionId'), 'Microsoft.Resources/resourceGroups', parameters('targetResourceGroup'))]"
+                  ]
+                },
+                "actionConfiguration": {
+                  "accessLevel": "[parameters('accessLevel')]",
+                  "identity": "",
+                  "mode": "[parameters('sreAgentMode')]"
+                },
+                "logConfiguration": {
+                  "applicationInsightsConfiguration": {
+                    "appId": "[parameters('appInsightsAppId')]",
+                    "connectionString": "[parameters('appInsightsConnectionString')]"
+                  }
+                },
+                "upgradeChannel": "[parameters('upgradeChannel')]",
+                "monthlyAgentUnitLimit": "[parameters('monthlyAgentUnitLimit')]",
+                "defaultModel": {
+                  "provider": "[parameters('defaultModelProvider')]",
+                  "name": "Automatic"
+                }
+              }
+            },
+            {
+              "condition": "[not(parameters('skipRoleAssignments'))]",
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "name": "[guid(resourceGroup().id, parameters('agentName'), '43d0d8ad-25c7-4714-9337-8ba259a9fe05')]",
+              "properties": {
+                "roleDefinitionId": "[resourceId('Microsoft.Authorization/roleDefinitions', '43d0d8ad-25c7-4714-9337-8ba259a9fe05')]",
+                "principalId": "[reference(resourceId('Microsoft.App/agents', parameters('agentName')), '2025-05-01-preview', 'full').identity.principalId]",
+                "principalType": "ServicePrincipal"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.App/agents', parameters('agentName'))]"
+              ]
+            },
+            {
+              "condition": "[and(not(parameters('skipRoleAssignments')), not(empty(parameters('deployerObjectId'))))]",
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[resourceId('Microsoft.App/agents', parameters('agentName'))]",
+              "name": "[guid(resourceId('Microsoft.App/agents', parameters('agentName')), parameters('deployerObjectId'), 'e79298df-d852-4c6d-84f9-5d13249d1e55')]",
+              "properties": {
+                "roleDefinitionId": "[resourceId('Microsoft.Authorization/roleDefinitions', 'e79298df-d852-4c6d-84f9-5d13249d1e55')]",
+                "principalId": "[parameters('deployerObjectId')]",
+                "principalType": "User"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.App/agents', parameters('agentName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.App/agents/connectors",
+              "apiVersion": "2025-05-01-preview",
+              "name": "[format('{0}/{1}', parameters('agentName'), 'app-insights')]",
+              "properties": {
+                "dataConnectorType": "AppInsights",
+                "dataSource": "[parameters('appInsightsResourceId')]",
+                "extendedProperties": {
+                  "armResourceId": "[parameters('appInsightsResourceId')]",
+                  "resource": {
+                    "name": "[last(split(parameters('appInsightsResourceId'), '/'))]"
+                  },
+                  "appId": "[parameters('appInsightsAppId')]"
+                },
+                "identity": "system"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.App/agents', parameters('agentName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.App/agents/connectors",
+              "apiVersion": "2025-05-01-preview",
+              "name": "[format('{0}/{1}', parameters('agentName'), 'log-analytics')]",
+              "properties": {
+                "dataConnectorType": "LogAnalytics",
+                "dataSource": "[parameters('lawResourceId')]",
+                "extendedProperties": {
+                  "armResourceId": "[parameters('lawResourceId')]",
+                  "resource": {
+                    "name": "[last(split(parameters('lawResourceId'), '/'))]"
+                  }
+                },
+                "identity": "system"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.App/agents/connectors', parameters('agentName'), 'app-insights')]"
+              ]
+            },
+            {
+              "condition": "[not(parameters('skipRoleAssignments'))]",
+              "type": "Microsoft.Resources/deployments",
+              "apiVersion": "2025-04-01",
+              "name": "[format('rbac-target-{0}', uniqueString(deployment().name))]",
+              "subscriptionId": "[parameters('subscriptionId')]",
+              "resourceGroup": "[parameters('targetResourceGroup')]",
+              "properties": {
+                "expressionEvaluationOptions": {
+                  "scope": "inner"
+                },
+                "mode": "Incremental",
+                "parameters": {
+                  "principalId": {
+                    "value": "[reference(resourceId('Microsoft.App/agents', parameters('agentName')), '2025-05-01-preview', 'full').identity.principalId]"
+                  },
+                  "accessLevel": {
+                    "value": "[parameters('accessLevel')]"
+                  }
+                },
+                "template": {
+                  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                  "contentVersion": "1.0.0.0",
+                  "metadata": {
+                    "_generator": {
+                      "name": "bicep",
+                      "version": "0.43.8.12551",
+                      "templateHash": "12946865908670227090"
+                    }
+                  },
+                  "parameters": {
+                    "principalId": {
+                      "type": "string"
+                    },
+                    "accessLevel": {
+                      "type": "string",
+                      "allowedValues": [
+                        "Low",
+                        "High"
+                      ]
+                    }
+                  },
+                  "resources": [
+                    {
+                      "type": "Microsoft.Authorization/roleAssignments",
+                      "apiVersion": "2022-04-01",
+                      "name": "[guid(resourceGroup().id, parameters('principalId'), 'acdd72a7-3385-48ef-bd42-f606fba81ae7')]",
+                      "properties": {
+                        "roleDefinitionId": "[resourceId('Microsoft.Authorization/roleDefinitions', 'acdd72a7-3385-48ef-bd42-f606fba81ae7')]",
+                        "principalId": "[parameters('principalId')]",
+                        "principalType": "ServicePrincipal"
+                      }
+                    },
+                    {
+                      "type": "Microsoft.Authorization/roleAssignments",
+                      "apiVersion": "2022-04-01",
+                      "name": "[guid(resourceGroup().id, parameters('principalId'), '73c42c96-874c-492b-b04d-ab87d138a893')]",
+                      "properties": {
+                        "roleDefinitionId": "[resourceId('Microsoft.Authorization/roleDefinitions', '73c42c96-874c-492b-b04d-ab87d138a893')]",
+                        "principalId": "[parameters('principalId')]",
+                        "principalType": "ServicePrincipal"
+                      }
+                    },
+                    {
+                      "condition": "[equals(parameters('accessLevel'), 'High')]",
+                      "type": "Microsoft.Authorization/roleAssignments",
+                      "apiVersion": "2022-04-01",
+                      "name": "[guid(resourceGroup().id, parameters('principalId'), 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
+                      "properties": {
+                        "roleDefinitionId": "[resourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
+                        "principalId": "[parameters('principalId')]",
+                        "principalType": "ServicePrincipal"
+                      }
+                    }
+                  ]
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.App/agents', parameters('agentName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "agentId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.App/agents', parameters('agentName'))]"
+            },
+            "agentName": {
+              "type": "string",
+              "value": "[parameters('agentName')]"
+            },
+            "agentDataPlaneUrl": {
+              "type": "string",
+              "value": "[format('https://{0}.{1}.azuresre.ai', parameters('agentName'), parameters('location'))]"
+            },
+            "agentPortalUrl": {
+              "type": "string",
+              "value": "[format('https://sre.azure.com/#/agent/{0}/{1}/{2}', subscription().subscriptionId, resourceGroup().name, parameters('agentName'))]"
+            },
+            "agentSystemMiPrincipalId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.App/agents', parameters('agentName')), '2025-05-01-preview', 'full').identity.principalId]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'monitoring')]"
+      ]
+    }
+  ],
+  "outputs": {
+    "resourceGroupName": {
+      "type": "string",
+      "value": "[resourceGroup().name]"
+    },
+    "location": {
+      "type": "string",
+      "value": "[parameters('location')]"
+    },
+    "environmentName": {
+      "type": "string",
+      "value": "[parameters('environmentName')]"
+    },
+    "managedIdentityId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'identity'), '2025-04-01').outputs.identityId.value]"
+    },
+    "managedIdentityName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'identity'), '2025-04-01').outputs.identityName.value]"
+    },
+    "managedIdentityPrincipalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'identity'), '2025-04-01').outputs.identityPrincipalId.value]"
+    },
+    "logAnalyticsWorkspaceId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'monitoring'), '2025-04-01').outputs.logAnalyticsWorkspaceId.value]"
+    },
+    "appInsightsId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'monitoring'), '2025-04-01').outputs.appInsightsId.value]"
+    },
+    "appInsightsName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'monitoring'), '2025-04-01').outputs.appInsightsName.value]"
+    },
+    "appInsightsConnectionString": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'monitoring'), '2025-04-01').outputs.appInsightsConnectionString.value]"
+    },
+    "appServicePlanName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appservice'), '2025-04-01').outputs.appServicePlanName.value]"
+    },
+    "effectiveSku": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appservice'), '2025-04-01').outputs.effectiveSku.value]"
+    },
+    "apiWebAppId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appservice'), '2025-04-01').outputs.apiWebAppId.value]"
+    },
+    "apiWebAppName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appservice'), '2025-04-01').outputs.apiWebAppName.value]"
+    },
+    "apiDefaultHostname": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appservice'), '2025-04-01').outputs.apiDefaultHostname.value]"
+    },
+    "apiStagingHostname": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appservice'), '2025-04-01').outputs.apiStagingHostname.value]"
+    },
+    "webAppId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appservice'), '2025-04-01').outputs.webAppId.value]"
+    },
+    "webAppName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appservice'), '2025-04-01').outputs.webAppName.value]"
+    },
+    "webDefaultHostname": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'appservice'), '2025-04-01').outputs.webDefaultHostname.value]"
+    },
+    "actionGroupId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'alerts'), '2025-04-01').outputs.actionGroupId.value]"
+    },
+    "actionGroupName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'alerts'), '2025-04-01').outputs.actionGroupName.value]"
+    },
+    "alert5xxId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'alerts'), '2025-04-01').outputs.alert5xxId.value]"
+    },
+    "alert5xxName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'alerts'), '2025-04-01').outputs.alert5xxName.value]"
+    },
+    "alertResponseTimeId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'alerts'), '2025-04-01').outputs.alertResponseTimeId.value]"
+    },
+    "alertResponseTimeName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'alerts'), '2025-04-01').outputs.alertResponseTimeName.value]"
+    },
+    "sreAgentId": {
+      "type": "string",
+      "value": "[coalesce(tryGet(if(parameters('enableSreAgent'), reference(resourceId('Microsoft.Resources/deployments', 'sre-agent'), '2025-04-01'), null()), 'outputs', 'agentId', 'value'), '')]"
+    },
+    "sreAgentName": {
+      "type": "string",
+      "value": "[coalesce(tryGet(if(parameters('enableSreAgent'), reference(resourceId('Microsoft.Resources/deployments', 'sre-agent'), '2025-04-01'), null()), 'outputs', 'agentName', 'value'), '')]"
+    },
+    "sreAgentPortalUrl": {
+      "type": "string",
+      "value": "[coalesce(tryGet(if(parameters('enableSreAgent'), reference(resourceId('Microsoft.Resources/deployments', 'sre-agent'), '2025-04-01'), null()), 'outputs', 'agentPortalUrl', 'value'), '')]"
+    },
+    "sreAgentDataPlaneUrl": {
+      "type": "string",
+      "value": "[coalesce(tryGet(if(parameters('enableSreAgent'), reference(resourceId('Microsoft.Resources/deployments', 'sre-agent'), '2025-04-01'), null()), 'outputs', 'agentDataPlaneUrl', 'value'), '')]"
+    }
+  }
+}

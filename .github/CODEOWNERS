@@ -1,0 +1,37 @@
+# CODEOWNERS — Contoso Claims / Agentic SDLC Accelerator
+#
+# Ownership drives required reviewers. Paths listed later win.
+# Replace @melrasheed with real teams (e.g. @contoso/platform-team) when adopting this kit.
+
+# Default owner for everything
+*                           @melrasheed
+
+# --- Elevated review paths -------------------------------------------------
+# These paths carry the highest blast radius. In a real adoption these should
+# require two approvers, at least one from outside the authoring team.
+
+# Infrastructure and deployment: a mistake here affects every service
+/infra/                     @melrasheed
+/pipelines/                 @melrasheed
+/.github/workflows/         @melrasheed
+
+# The agent fleet defines how AI behaves across the whole lifecycle.
+# Changing an agent definition silently changes the behaviour of every future
+# AI contribution, so treat it as a governance change, not a docs change.
+/.github/agents/            @melrasheed
+/.github/copilot-instructions.md  @melrasheed
+
+# Governance surfaces
+/.github/CODEOWNERS         @melrasheed
+/.github/PULL_REQUEST_TEMPLATE.md @melrasheed
+
+# Integration between the system of record and the system of work.
+# Bugs here break traceability and audit.
+/tools/ado-github-bridge/   @melrasheed
+
+# Security artefacts
+/docs/threat-models/        @melrasheed
+/docs/05-security-model.md  @melrasheed
+
+# Adjudication is the money path in this domain.
+/packages/shared/src/risk*  @melrasheed

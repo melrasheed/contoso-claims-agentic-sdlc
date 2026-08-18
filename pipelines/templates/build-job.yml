@@ -1,0 +1,97 @@
+# =============================================================================
+# templates/build-job.yml — Build all workspaces, publish artifacts
+# =============================================================================
+parameters:
+  - name: nodeVersion
+    type: string
+    default: '20.x'
+  - name: artifactName
+    type: string
+    default: 'drop'
+
+jobs:
+  - job: Build
+    displayName: 'Build All Workspaces'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+      - task: NodeTool@0
+        displayName: 'Use Node $(nodeVersion)'
+        inputs:
+          versionSpec: ${{ parameters.nodeVersion }}
+
+      - script: npm ci
+        displayName: 'npm ci (install all workspaces)'
+
+      - script: npm run lint --workspaces --if-present
+        displayName: 'Lint all workspaces'
+        continueOnError: false
+
+      - script: npm run typecheck --workspaces --if-present
+        displayName: 'TypeScript typecheck'
+        continueOnError: false
+
+      - script: npm run test --workspaces --if-present -- --coverage --coverageReporters=cobertura
+        displayName: 'Unit tests with coverage'
+        continueOnError: false
+
+      - task: PublishCodeCoverageResults@2
+        displayName: 'Publish code coverage'
+        inputs:
+          summaryFileLocation: '**/coverage/cobertura-coverage.xml'
+        condition: succeededOrFailed()
+
+      - task: PublishTestResults@2
+        displayName: 'Publish test results'
+        inputs:
+          testResultsFormat: 'JUnit'
+          testResultsFiles: '**/test-results/*.xml'
+          mergeTestResults: true
+        condition: succeededOrFailed()
+
+      # Build API (TypeScript → dist/)
+      - script: npm run build -w apps/api
+        displayName: 'Build API (tsc)'
+
+      # Build Web SPA (Vite)
+      # NOTE: VITE_API_BASE_URL must be set in the variable group for the
+      # target environment — Vite inlines it at build time.
+      - script: npm run build -w apps/web
+        displayName: 'Build Web SPA (vite build)'
+        env:
+          VITE_API_BASE_URL: $(VITE_API_BASE_URL)
+
+      # Stage artifacts
+      - task: CopyFiles@2
+        displayName: 'Stage API artifact'
+        inputs:
+          SourceFolder: 'apps/api'
+          Contents: |
+            dist/**
+            package.json
+            package-lock.json
+          TargetFolder: '$(Build.ArtifactStagingDirectory)/api'
+
+      - task: CopyFiles@2
+        displayName: 'Stage Web artifact'
+        inputs:
+          SourceFolder: 'apps/web/dist'
+          Contents: '**'
+          TargetFolder: '$(Build.ArtifactStagingDirectory)/web'
+
+      - task: CopyFiles@2
+        displayName: 'Stage Infra artifact'
+        inputs:
+          SourceFolder: 'infra'
+          Contents: |
+            **/*.bicep
+            **/*.json
+            deploy.ps1
+          TargetFolder: '$(Build.ArtifactStagingDirectory)/infra'
+
+      - task: PublishBuildArtifacts@1
+        displayName: 'Publish artifact: ${{ parameters.artifactName }}'
+        inputs:
+          PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+          ArtifactName: ${{ parameters.artifactName }}
+          publishLocation: 'Container'

@@ -1,0 +1,167 @@
+# =============================================================================
+# azure-pipelines.yml — Agentic SDLC Accelerator  |  Main Pipeline
+# =============================================================================
+#
+# SETUP CHECKLIST (one-time, in Azure DevOps portal):
+#
+#  1. Service Connection (OIDC / Workload Identity Federation — recommended):
+#       Project Settings → Service connections → New → Azure Resource Manager
+#       → Workload identity federation (automatic)
+#       Name it: azure-svc-connection
+#       Grant access to subscription: 8327fd6b-5af3-4e8d-86d3-d48e5d12d8c7
+#       See pipelines/README.md §Service Connection for full instructions.
+#
+#  2. Variable Groups (Library → Variable Groups):
+#       "agentic-sdlc-common":
+#         AZURE_SUBSCRIPTION_ID   = 8327fd6b-5af3-4e8d-86d3-d48e5d12d8c7
+#         AZURE_TENANT_ID         = e9aef5a6-034f-43b1-b250-31b77e3e427b
+#         NAME_PREFIX             = contoso
+#         ALERT_EMAIL             = ops-team@example.com
+#       "agentic-sdlc-dev":
+#         VITE_API_BASE_URL       = https://contoso-api-dev.azurewebsites.net
+#         AZURE_RESOURCE_GROUP    = contoso-rg-dev
+#         AZURE_LOCATION          = eastus
+#       "agentic-sdlc-prod":
+#         VITE_API_BASE_URL       = https://contoso-api-prod.azurewebsites.net
+#         AZURE_RESOURCE_GROUP    = contoso-rg-prod
+#         AZURE_LOCATION          = eastus
+#
+#  3. Environments (Pipelines → Environments):
+#       Create "dev"  — no approval gates needed
+#       Create "prod" — add Approvals + Checks (see pipelines/README.md §Gates)
+#
+#  4. Import this pipeline:
+#       Pipelines → New Pipeline → Azure Repos Git or GitHub
+#       → Existing Azure Pipelines YAML → pipelines/azure-pipelines.yml
+# =============================================================================
+
+trigger:
+  branches:
+    include:
+      - main
+      - release/*
+  paths:
+    exclude:
+      - '**/*.md'
+      - 'docs/**'
+
+pr:
+  branches:
+    include:
+      - main
+
+variables:
+  - group: agentic-sdlc-common
+  - name: azureServiceConnection
+    value: 'azure-svc-connection'
+  - name: nodeVersion
+    value: '20.x'
+  - name: artifactName
+    value: 'drop'
+
+stages:
+  # ===========================================================================
+  # Stage 1: BUILD
+  # ===========================================================================
+  - stage: Build
+    displayName: '🔨 Build'
+    jobs:
+      - template: templates/build-job.yml
+        parameters:
+          nodeVersion: $(nodeVersion)
+          artifactName: $(artifactName)
+
+  # ===========================================================================
+  # Stage 2: SECURITY SCAN
+  # Blocking: fails pipeline on high-severity findings.
+  # ===========================================================================
+  - stage: SecurityScan
+    displayName: '🔒 Security Scan'
+    dependsOn: Build
+    jobs:
+      - template: templates/security-scan-job.yml
+        parameters:
+          artifactName: $(artifactName)
+
+  # ===========================================================================
+  # Stage 3: DEPLOY DEV
+  # ===========================================================================
+  - stage: DeployDev
+    displayName: '🚀 Deploy Dev'
+    dependsOn: SecurityScan
+    condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))
+    variables:
+      - group: agentic-sdlc-dev
+    jobs:
+      - template: templates/deploy-job.yml
+        parameters:
+          environment: 'dev'
+          azureServiceConnection: $(azureServiceConnection)
+          artifactName: $(artifactName)
+          subscriptionId: $(AZURE_SUBSCRIPTION_ID)
+          resourceGroup: $(AZURE_RESOURCE_GROUP)
+          location: $(AZURE_LOCATION)
+          namePrefix: $(NAME_PREFIX)
+          environmentName: 'dev'
+          enableSlots: false
+          viteApiBaseUrl: $(VITE_API_BASE_URL)
+          alertEmail: $(ALERT_EMAIL)
+
+  # ===========================================================================
+  # Stage 4: VERIFY DEV
+  # Smoke tests against the deployed dev environment.
+  # ===========================================================================
+  - stage: VerifyDev
+    displayName: '✅ Verify Dev'
+    dependsOn: DeployDev
+    condition: succeeded()
+    variables:
+      - group: agentic-sdlc-dev
+    jobs:
+      - template: templates/verify-job.yml
+        parameters:
+          apiBaseUrl: $(VITE_API_BASE_URL)
+          environment: 'dev'
+
+  # ===========================================================================
+  # Stage 5: DEPLOY PROD
+  # Requires "prod" environment approval + ADO gates (see README §Gates).
+  # Deploys to staging slot, health checks, then swaps.
+  # ===========================================================================
+  - stage: DeployProd
+    displayName: '🚀 Deploy Prod'
+    dependsOn: VerifyDev
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    variables:
+      - group: agentic-sdlc-prod
+    jobs:
+      - template: templates/deploy-prod-job.yml
+        parameters:
+          environment: 'prod'
+          azureServiceConnection: $(azureServiceConnection)
+          artifactName: $(artifactName)
+          subscriptionId: $(AZURE_SUBSCRIPTION_ID)
+          resourceGroup: $(AZURE_RESOURCE_GROUP)
+          location: $(AZURE_LOCATION)
+          namePrefix: $(NAME_PREFIX)
+          viteApiBaseUrl: $(VITE_API_BASE_URL)
+          alertEmail: $(ALERT_EMAIL)
+
+  # ===========================================================================
+  # Stage 6: POST-DEPLOY
+  # Telemetry verification and release annotation.
+  # ===========================================================================
+  - stage: PostDeploy
+    displayName: '📊 Post-Deploy'
+    dependsOn: DeployProd
+    condition: succeeded()
+    variables:
+      - group: agentic-sdlc-prod
+    jobs:
+      - template: templates/post-deploy-job.yml
+        parameters:
+          azureServiceConnection: $(azureServiceConnection)
+          subscriptionId: $(AZURE_SUBSCRIPTION_ID)
+          resourceGroup: $(AZURE_RESOURCE_GROUP)
+          namePrefix: $(NAME_PREFIX)
+          apiBaseUrl: $(VITE_API_BASE_URL)

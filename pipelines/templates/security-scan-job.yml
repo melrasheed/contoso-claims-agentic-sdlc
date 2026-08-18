@@ -1,0 +1,67 @@
+# =============================================================================
+# templates/security-scan-job.yml — Dependency audit + secret scan + CodeQL
+#
+# BLOCKING: Any HIGH severity npm audit finding fails the pipeline.
+# =============================================================================
+parameters:
+  - name: artifactName
+    type: string
+    default: 'drop'
+
+jobs:
+  - job: SecurityScan
+    displayName: 'Security Scan'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+      - task: NodeTool@0
+        displayName: 'Use Node 20.x'
+        inputs:
+          versionSpec: '20.x'
+
+      - script: npm ci
+        displayName: 'Install dependencies'
+
+      # -----------------------------------------------------------------------
+      # npm audit — fails on high severity
+      # -----------------------------------------------------------------------
+      - script: npm audit --audit-level=high
+        displayName: 'npm audit (fail on high severity)'
+        continueOnError: false
+
+      # -----------------------------------------------------------------------
+      # Secret scan — Microsoft Security DevOps (CredScan + Binskim + more)
+      # Requires the "Microsoft Security DevOps" extension from the Marketplace.
+      # Install: https://marketplace.visualstudio.com/items?itemName=ms-securitydevops.microsoft-security-devops-azdevops
+      # -----------------------------------------------------------------------
+      - task: MicrosoftSecurityDevOps@1
+        displayName: 'Microsoft Security DevOps (secret + SAST scan)'
+        inputs:
+          categories: 'secrets,code'
+          break: true   # Break build on findings
+        continueOnError: false
+
+      # -----------------------------------------------------------------------
+      # CodeQL analysis placeholder
+      # Full CodeQL requires GitHub Advanced Security or Azure DevOps GHAS.
+      # To enable:
+      #   1. Enable GHAS on the Azure DevOps project.
+      #   2. Replace the script below with AdvancedSecurity-Codeql-Init@1,
+      #      AdvancedSecurity-Codeql-Autobuild@1, AdvancedSecurity-Codeql-Analyze@1.
+      # -----------------------------------------------------------------------
+      - script: |
+          echo "##[section]CodeQL Placeholder"
+          echo "CodeQL analysis requires GitHub Advanced Security."
+          echo "See pipelines/README.md §CodeQL for enablement instructions."
+        displayName: 'CodeQL (placeholder — see README)'
+
+      # -----------------------------------------------------------------------
+      # Publish security scan results (SARIF) if available
+      # -----------------------------------------------------------------------
+      - task: PublishBuildArtifacts@1
+        displayName: 'Publish security scan results'
+        inputs:
+          PathtoPublish: '$(Agent.TempDirectory)'
+          ArtifactName: 'security-results'
+          publishLocation: 'Container'
+        condition: always()

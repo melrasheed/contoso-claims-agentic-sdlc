@@ -1,0 +1,35 @@
+{
+  "name": "@contoso/claims-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Contoso Claims dashboard - React 18 + Vite 6 reference client for the Agentic SDLC accelerator",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "prebuild": "tsc -b ../../packages/shared",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "dev": "vite",
+    "preview": "vite preview",
+    "pretest": "tsc -b ../../packages/shared",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@contoso/shared": "1.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/react": "^18.3.17",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vitest": "^2.1.8"
+  }
+}

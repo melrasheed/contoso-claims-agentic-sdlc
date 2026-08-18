@@ -1,0 +1,28 @@
+{
+  "name": "@contoso/ado-github-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Syncs Azure Boards work items into GitHub issues and assigns them to the Copilot coding agent, then writes results back to Azure Boards for full traceability.",
+  "type": "module",
+  "bin": {
+    "ado-github-bridge": "./dist/cli.js"
+  },
+  "main": "./dist/cli.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "start": "node dist/cli.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@azure/identity": "^4.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
