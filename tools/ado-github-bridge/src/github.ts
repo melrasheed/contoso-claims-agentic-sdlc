@@ -82,10 +82,15 @@ export class GitHubClient {
    * Find an issue previously created for a work item. The bridge stamps every
    * issue body with a stable marker so re-runs are idempotent even if the
    * Azure Boards side lost its tag.
+   *
+   * `is:issue` is essential: GitHub's search/issues endpoint returns pull
+   * requests as well, and the Copilot coding agent copies the issue body -
+   * marker included - into the pull request it opens. Without this filter the
+   * bridge reports the PR number instead of the issue number.
    */
   async findIssueByMarker(marker: string): Promise<ExistingIssue | undefined> {
     const { ghOwner, ghRepo } = this.config;
-    const q = encodeURIComponent(`repo:${ghOwner}/${ghRepo} in:body "${marker}"`);
+    const q = encodeURIComponent(`repo:${ghOwner}/${ghRepo} is:issue in:body "${marker}"`);
     const result = await this.rest<{
       items: Array<{
         number: number;
@@ -94,10 +99,12 @@ export class GitHubClient {
         title: string;
         state: string;
         body: string | null;
+        pull_request?: unknown;
       }>;
-    }>(`/search/issues?q=${q}&per_page=5`);
+    }>(`/search/issues?q=${q}&per_page=10`);
 
-    const match = result.items[0];
+    // Belt and braces: drop anything that is actually a pull request.
+    const match = result.items.find((item) => item.pull_request === undefined);
     if (!match) return undefined;
     return {
       number: match.number,
