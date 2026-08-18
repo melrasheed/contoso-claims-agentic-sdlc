@@ -19,6 +19,16 @@ describe('RiskIndicator', () => {
     expect(screen.getByText(String(score))).toBeInTheDocument();
   });
 
+  it.each([
+    [33, 'Low'],
+    [34, 'Medium'],
+    [67, 'High'],
+  ])('renders the %s text label when requested', (score, label) => {
+    render(<RiskIndicator score={score} showBand />);
+
+    expect(screen.getByText(label)).toBeInTheDocument();
+  });
+
   it('can hide the numeric value', () => {
     render(<RiskIndicator score={50} showValue={false} />);
     expect(screen.queryByText('50')).not.toBeInTheDocument();

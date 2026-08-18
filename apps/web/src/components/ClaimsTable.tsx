@@ -72,7 +72,7 @@ export function ClaimsTable({
                 <StatusBadge status={claim.status} />
               </td>
               <td>
-                <RiskIndicator score={claim.riskScore} />
+                <RiskIndicator score={claim.riskScore} showBand />
               </td>
             </tr>
           ))}

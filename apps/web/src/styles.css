@@ -333,6 +333,12 @@ h3 {
   color: var(--grey-700);
 }
 
+.risk__band {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--grey-700);
+}
+
 /* ---------- Banner ---------- */
 
 .banner {

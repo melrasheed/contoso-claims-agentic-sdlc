@@ -56,6 +56,19 @@ describe('ClaimsTable', () => {
     expect(meters[1]).toHaveAttribute('data-band', 'high');
   });
 
+  it('shows text risk bands in the list', () => {
+    render(
+      <ClaimsTable
+        claims={[...claims, { ...claims[0], id: 'CLM-000003', riskScore: 34 }]}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Low')).toBeInTheDocument();
+    expect(screen.getByText('Medium')).toBeInTheDocument();
+    expect(screen.getByText('High')).toBeInTheDocument();
+  });
+
   it('calls onSelect when a row is clicked', async () => {
     const onSelect = vi.fn();
     render(<ClaimsTable claims={claims} onSelect={onSelect} />);
