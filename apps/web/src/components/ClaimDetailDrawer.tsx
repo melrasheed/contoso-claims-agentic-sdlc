@@ -20,6 +20,7 @@ export interface ClaimDetailDrawerProps {
 }
 
 const DEFAULT_ADJUDICATOR = 'Demo Adjuster';
+const DEMO_SECOND_APPROVER = 'Demo Second Approver';
 
 /** Slide-over panel with the full claim record and adjudication controls. */
 export function ClaimDetailDrawer({
@@ -46,7 +47,7 @@ export function ClaimDetailDrawer({
     const input: AdjudicateClaimInput = {
       decision,
       decidedBy:
-        claim.status === 'pending_second_approval' ? 'Demo Second Approver' : DEFAULT_ADJUDICATOR,
+        claim.status === 'pending_second_approval' ? DEMO_SECOND_APPROVER : DEFAULT_ADJUDICATOR,
       rationale:
         rationale.trim().length >= 5
           ? rationale.trim()

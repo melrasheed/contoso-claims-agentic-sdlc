@@ -5,6 +5,7 @@ import {
   RISK_BANDS,
   calculateRiskScore,
   formatClaimId,
+  type Adjudication,
   type AdjudicateClaimInput,
   type Claim,
   type ClaimFilter,
@@ -127,27 +128,22 @@ export class ClaimsRepository {
     const timestamp = now.toISOString();
     const approvedAmount =
       input.decision === 'approved' ? (input.approvedAmount ?? existing.amountRequested) : 0;
+    const newEntry: Adjudication = {
+      status,
+      decidedBy: input.decidedBy,
+      decidedAt: timestamp,
+      rationale: input.rationale,
+      approvedAmount,
+    };
 
     const updated: Claim = {
       ...existing,
       status,
       updatedAt: timestamp,
-      adjudication: {
-        status,
-        decidedBy: input.decidedBy,
-        decidedAt: timestamp,
-        rationale: input.rationale,
-        approvedAmount,
-      },
+      adjudication: newEntry,
       adjudications: [
         ...(existing.adjudications ?? (existing.adjudication ? [existing.adjudication] : [])),
-        {
-          status,
-          decidedBy: input.decidedBy,
-          decidedAt: timestamp,
-          rationale: input.rationale,
-          approvedAmount,
-        },
+        newEntry,
       ],
     };
 
