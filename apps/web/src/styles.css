@@ -326,17 +326,15 @@ h3 {
   background: var(--red-600);
 }
 
+.risk__band,
 .risk__value {
-  font-variant-numeric: tabular-nums;
   font-size: 13px;
   font-weight: 600;
   color: var(--grey-700);
 }
 
-.risk__band {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--grey-700);
+.risk__value {
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---------- Banner ---------- */
