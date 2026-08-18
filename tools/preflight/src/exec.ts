@@ -21,16 +21,70 @@ const DEFAULT_TIMEOUT_MS = 45_000;
  * On Windows the Azure/GitHub CLIs are `.cmd` shims which Node refuses to spawn
  * without a shell, so arguments are quoted defensively before handing them over.
  */
-function quoteForShell(arg: string): string {
+/**
+ * Quote a single argument for a Windows `cmd.exe` command line.
+ *
+ * Two distinct escaping layers apply on Windows and both matter:
+ *
+ * 1. `CommandLineToArgvW` parsing. Backslashes are only special immediately
+ *    before a double quote: a run of N backslashes followed by `"` must become
+ *    2N backslashes plus `\"`, and a run of trailing backslashes must be
+ *    doubled so it does not escape the closing quote. Escaping `"` alone - and
+ *    not the backslashes - lets an argument ending in `\` terminate its own
+ *    quoting and inject further arguments.
+ *
+ * 2. `cmd.exe` metacharacter expansion. `&`, `|`, `<`, `>`, `^` and `(` `)` are
+ *    interpreted before the program sees them, and `%VAR%` is expanded. Quoting
+ *    neutralises them, but a value that has escaped its quotes would not be.
+ *
+ * The allowlist fast path below is deliberately conservative: any character
+ * outside it takes the fully-quoted route.
+ */
+export function quoteForShell(arg: string): string {
   if (arg.length > 0 && /^[A-Za-z0-9_./:@=-]+$/.test(arg)) return arg;
-  return `"${arg.replace(/"/g, '\\"')}"`;
+
+  // Double every backslash that runs into a double quote, escape the quote,
+  // then double any trailing backslash run before the closing quote.
+  const escaped = arg
+    .replace(/(\\*)"/g, (_match, slashes: string) => `${slashes}${slashes}\\"`)
+    .replace(/(\\+)$/, (_match, slashes: string) => `${slashes}${slashes}`);
+
+  return `"${escaped}"`;
+}
+
+/**
+ * Reject arguments that could not be safely represented on a shell command
+ * line. Nothing in this tool legitimately needs a NUL or a newline in an
+ * argument, and both defeat quoting entirely.
+ */
+function assertShellSafe(arg: string): void {
+  if (/[\r\n\0]/.test(arg)) {
+    throw new Error('Refusing to execute: argument contains a newline or NUL character.');
+  }
 }
 
 export function run(command: string, args: string[] = [], options: RunOptions = {}): Promise<ExecResult> {
   const useShell = process.platform === 'win32';
   // On Windows everything is folded into a single shell command line: passing an
   // args array together with `shell: true` triggers Node's DEP0190 warning.
-  const finalCommand = useShell ? [command, ...args.map(quoteForShell)].join(' ') : command;
+  let finalCommand: string;
+  try {
+    if (useShell) {
+      assertShellSafe(command);
+      args.forEach(assertShellSafe);
+      finalCommand = [command, ...args.map(quoteForShell)].join(' ');
+    } else {
+      finalCommand = command;
+    }
+  } catch (err) {
+    return Promise.resolve({
+      ok: false,
+      code: null,
+      stdout: '',
+      stderr: '',
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
   const finalArgs = useShell ? [] : args;
 
   return new Promise((resolve) => {

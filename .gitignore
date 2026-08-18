@@ -22,5 +22,7 @@ yarn-error.log*
 *.log
 
 .azure/
+deploy-staging/
+*.zip
 __blobstorage__/
 __azurite*

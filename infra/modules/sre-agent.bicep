@@ -141,7 +141,8 @@ resource sreAgent 'Microsoft.App/agents@2025-05-01-preview' = {
     }
     actionConfiguration: {
       accessLevel: accessLevel
-      identity: '' // '' = use system-assigned MI for actions
+      // 'identity' omitted → agent uses its SystemAssigned MI for actions.
+      // Do NOT pass '' — the ARM API rejects an empty string here.
       mode: sreAgentMode
     }
     logConfiguration: {

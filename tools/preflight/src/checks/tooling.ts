@@ -135,7 +135,7 @@ export async function runToolingChecks(_ctx: PreflightContext): Promise<CheckRes
           hint: 'Run `winget install Microsoft.AzureCLI` (Windows) or see https://aka.ms/installazurecli.'
         };
       }
-      let core = 'unknown';
+      let core: string;
       try {
         const parsed = JSON.parse(res.stdout) as { 'azure-cli'?: string };
         core = parsed['azure-cli'] ?? 'unknown';

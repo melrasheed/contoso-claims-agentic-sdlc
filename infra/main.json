@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "190527028972900651"
+      "templateHash": "7065919560778821448"
     }
   },
   "parameters": {
@@ -421,7 +421,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.43.8.12551",
-              "templateHash": "3184474000973892789"
+              "templateHash": "2636304325998526367"
             }
           },
           "parameters": {
@@ -533,7 +533,7 @@
                 "siteConfig": {
                   "linuxFxVersion": "NODE|20-lts",
                   "appCommandLine": "node dist/index.js",
-                  "alwaysOn": "[not(equals(variables('effectiveSku'), 'B1'))]",
+                  "alwaysOn": true,
                   "ftpsState": "Disabled",
                   "minTlsVersion": "1.2",
                   "http20Enabled": true,
@@ -645,7 +645,7 @@
                 "siteConfig": {
                   "linuxFxVersion": "NODE|20-lts",
                   "appCommandLine": "npx serve dist -s -l $PORT",
-                  "alwaysOn": "[not(equals(variables('effectiveSku'), 'B1'))]",
+                  "alwaysOn": true,
                   "ftpsState": "Disabled",
                   "minTlsVersion": "1.2",
                   "http20Enabled": true,
@@ -1036,7 +1036,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.43.8.12551",
-              "templateHash": "7085568170033147504"
+              "templateHash": "9110047299898917028"
             }
           },
           "parameters": {
@@ -1183,7 +1183,6 @@
                 },
                 "actionConfiguration": {
                   "accessLevel": "[parameters('accessLevel')]",
-                  "identity": "",
                   "mode": "[parameters('sreAgentMode')]"
                 },
                 "logConfiguration": {

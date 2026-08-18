@@ -91,7 +91,7 @@ resource apiWebApp 'Microsoft.Web/sites@2023-01-01' = {
     siteConfig: {
       linuxFxVersion: 'NODE|20-lts'
       appCommandLine: 'node dist/index.js'
-      alwaysOn: effectiveSku != 'B1' // alwaysOn not available on B1
+      alwaysOn: true // B1 and above all support AlwaysOn; Free/Shared (F1/D1) do not
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
       http20Enabled: true
@@ -205,7 +205,7 @@ resource webApp 'Microsoft.Web/sites@2023-01-01' = {
       // `serve` is included in the published dist artifact via devDependencies.
       // Alternatively the pipeline injects a minimal server.js — see pipeline README.
       appCommandLine: 'npx serve dist -s -l $PORT'
-      alwaysOn: effectiveSku != 'B1'
+      alwaysOn: true // B1 and above all support AlwaysOn; Free/Shared (F1/D1) do not
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
       http20Enabled: true
