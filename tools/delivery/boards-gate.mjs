@@ -107,25 +107,31 @@ function loadConfig(env = process.env) {
  *
  * Cross-platform spawn is fiddly here:
  * - On POSIX, `az` is a real executable, so execFile with an args array is
- *   correct and avoids any shell.
+ *   correct and involves no shell at all.
  * - On Windows, `az` is a `.cmd` shim. Node refuses to spawn `.cmd` without a
  *   shell (EINVAL, hardening for CVE-2024-27980), but passing an args array
- *   *with* a shell concatenates instead of escaping them (DEP0190) - the same
- *   argument-injection class CodeQL flags elsewhere in this repository.
+ *   *with* a shell concatenates rather than escapes them (DEP0190).
  *
- * So on Windows we build one fully-quoted command string and pass no args
- * array. Every argument here is a fixed constant, but it is quoted anyway
- * rather than relying on that staying true.
+ * The Windows path therefore uses a **fixed literal command string**. Building
+ * it by quoting and joining would reintroduce exactly the incomplete-escaping
+ * class that CodeQL flags (`js/incomplete-sanitization`) - naive quoting misses
+ * backslashes. Every argument here is a compile-time constant with no
+ * interpolation, so there is nothing to escape and nothing to get wrong.
  */
+const AZ_TOKEN_COMMAND =
+  'az account get-access-token ' +
+  '--resource 499b84ac-1321-427f-aa17-267ca6975798 ' +
+  '--query accessToken -o tsv';
+
 async function runAzForToken() {
-  const args = ['account', 'get-access-token', '--resource', ADO_RESOURCE_ID, '--query', 'accessToken', '-o', 'tsv'];
-
   if (process.platform !== 'win32') {
-    return execFileAsync('az', args, { timeout: 60_000 });
+    return execFileAsync(
+      'az',
+      ['account', 'get-access-token', '--resource', ADO_RESOURCE_ID, '--query', 'accessToken', '-o', 'tsv'],
+      { timeout: 60_000 },
+    );
   }
-
-  const quoted = args.map((a) => (/^[A-Za-z0-9_.:@=/-]+$/.test(a) ? a : `"${a.replace(/"/g, '""')}"`));
-  return execFileAsync(`az ${quoted.join(' ')}`, { timeout: 60_000, shell: true });
+  return execFileAsync(AZ_TOKEN_COMMAND, { timeout: 60_000, shell: true });
 }
 
 async function authHeader(config) {
@@ -256,6 +262,40 @@ export function decide({ count, maxBlocking, enforce }) {
   return { passed: false, reason: 'blocked' };
 }
 
+/**
+ * Neutralise text that came from Azure Boards before it is written to the
+ * GitHub job summary.
+ *
+ * Work item titles are attacker-influenced in the sense that anyone who can
+ * file a work item controls them. The summary is rendered as Markdown, so an
+ * unescaped title could break the table, inject HTML, or smuggle a misleading
+ * link into a governance artefact that a release approver reads.
+ *
+ * Strips control characters, escapes Markdown-significant characters, and caps
+ * the length so a very long title cannot flood the summary.
+ */
+export function sanitiseForSummary(value, maxLength = 200) {
+  const text = String(value ?? '')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const escaped = text
+    .replace(/\\/g, '\\\\')
+    .replace(/([|`*_[\]<>])/g, '\\$1');
+
+  return escaped.length > maxLength ? `${escaped.slice(0, maxLength - 1)}…` : escaped;
+}
+
+/** Only allow the work item URLs this tool constructs itself. */
+function safeWorkItemUrl(url) {
+  const text = String(url ?? '');
+  return /^https:\/\/dev\.azure\.com\/[A-Za-z0-9%._~-]+\/[A-Za-z0-9%._~-]+\/_workitems\/edit\/\d+$/.test(text)
+    ? text
+    : '';
+}
+
 export function buildSummary({ config, items, count, decision, wiqlSource }) {
   const lines = [];
   const heading = decision.passed
@@ -265,8 +305,8 @@ export function buildSummary({ config, items, count, decision, wiqlSource }) {
     : '### Azure Boards release gate — BLOCKED';
 
   lines.push(heading, '');
-  lines.push(`Source: \`${wiqlSource}\``);
-  lines.push(`Project: \`${config.organization}/${config.project}\``);
+  lines.push(`Source: \`${sanitiseForSummary(wiqlSource)}\``);
+  lines.push(`Project: \`${sanitiseForSummary(`${config.organization}/${config.project}`)}\``);
   lines.push(`Blocking work items: **${count}** (tolerance ${config.maxBlocking})`);
   lines.push('');
 
@@ -278,9 +318,12 @@ export function buildSummary({ config, items, count, decision, wiqlSource }) {
   lines.push('| ID | Type | Title | State | Assigned to |');
   lines.push('| --- | --- | --- | --- | --- |');
   for (const item of items) {
-    const safeTitle = String(item.title).replace(/\|/g, '\\|');
+    const id = Number.parseInt(item.id, 10);
+    const url = safeWorkItemUrl(item.url);
+    const idCell = url ? `[${id}](${url})` : String(id);
     lines.push(
-      `| [${item.id}](${item.url}) | ${item.type} | ${safeTitle} | ${item.state} | ${item.assignedTo} |`,
+      `| ${idCell} | ${sanitiseForSummary(item.type, 40)} | ${sanitiseForSummary(item.title)} ` +
+        `| ${sanitiseForSummary(item.state, 40)} | ${sanitiseForSummary(item.assignedTo, 60)} |`,
     );
   }
   lines.push('');
@@ -381,8 +424,13 @@ async function main() {
   if (!decision.passed) {
     console.error(`::error::Release gate blocked: ${count} blocking work item(s) in Azure Boards.`);
     for (const item of items) {
-      console.error(`::error::  ${item.type} ${item.id} [${item.state}] ${item.title} - ${item.url}`);
-    }
+        // Sanitised: workflow-command output is parsed by the runner, so an
+        // unescaped title could otherwise inject a command.
+        console.error(
+          `::error::  ${sanitiseForSummary(item.type, 40)} ${Number.parseInt(item.id, 10)} ` +
+            `[${sanitiseForSummary(item.state, 40)}] ${sanitiseForSummary(item.title)}`,
+        );
+      }
     return EXIT_BLOCKED;
   }
 

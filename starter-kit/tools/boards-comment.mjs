@@ -45,7 +45,21 @@ const execFileAsync = promisify(execFile);
 
 /** Well-known Azure DevOps application ID. A public constant, not a secret. */
 const ADO_RESOURCE_ID = '499b84ac-1321-427f-aa17-267ca6975798';
-const API_VERSION = '7.1';
+
+/**
+ * Neutralise Boards-derived text before writing it to the GitHub job summary.
+ * Titles and errors are attacker-influenced by anyone who can file a work item,
+ * and the summary is rendered as Markdown.
+ */
+function sanitiseForSummary(value, maxLength = 200) {
+  const text = String(value ?? '')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const escaped = text.replace(/\\/g, '\\\\').replace(/([|`*_[\]<>])/g, '\\$1');
+  return escaped.length > maxLength ? `${escaped.slice(0, maxLength - 1)}…` : escaped;
+}
 
 /**
  * Extract Azure Boards work item ids from arbitrary text.
@@ -233,7 +247,7 @@ async function main() {
   }
   if (failed.length) {
     lines.push('', '**Not updated:**', '');
-    for (const f of failed) lines.push(`- AB#${f.id}: ${f.error}`);
+    for (const f of failed) lines.push(`- AB#${Number.parseInt(f.id, 10)}: ${sanitiseForSummary(f.error)}`);
   }
   await summarise(lines);
 

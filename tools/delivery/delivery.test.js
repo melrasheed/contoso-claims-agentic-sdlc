@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { decide, buildSummary } from './boards-gate.mjs';
+import { decide, buildSummary, sanitiseForSummary } from './boards-gate.mjs';
 import { buildDeploymentComment, extractWorkItemIds } from './boards-comment.mjs';
 
 /**
@@ -113,6 +113,60 @@ describe('release gate summary', () => {
       wiqlSource: 'inline WIQL',
     });
     expect(summary).toContain('a \\| b \\| c');
+  });
+
+  it('rejects a work item URL that is not a genuine Azure Boards link', () => {
+    const summary = buildSummary({
+      config,
+      items: [{ ...items[0], url: 'https://evil.example/steal' }],
+      count: 1,
+      decision: { passed: false, reason: 'blocked' },
+      wiqlSource: 'inline WIQL',
+    });
+    // Falls back to a plain id rather than rendering an attacker-supplied link
+    // into a governance artefact a release approver reads.
+    expect(summary).not.toContain('evil.example');
+    expect(summary).toContain('| 4 |');
+  });
+
+  it('coerces the work item id to a number so it cannot carry markup', () => {
+    const summary = buildSummary({
+      config,
+      items: [{ ...items[0], id: '4<script>' }],
+      count: 1,
+      decision: { passed: false, reason: 'blocked' },
+      wiqlSource: 'inline WIQL',
+    });
+    expect(summary).not.toContain('<script>');
+  });
+});
+
+describe('summary sanitisation', () => {
+  it('escapes markdown control characters', () => {
+    expect(sanitiseForSummary('a|b')).toBe('a\\|b');
+    expect(sanitiseForSummary('**bold**')).toBe('\\*\\*bold\\*\\*');
+    expect(sanitiseForSummary('[link](x)')).toBe('\\[link\\](x)');
+    expect(sanitiseForSummary('<img src=x>')).toBe('\\<img src=x\\>');
+  });
+
+  it('escapes backslashes before other characters, not after', () => {
+    // Naive ordering would double-escape and corrupt the output - the same
+    // class of bug CodeQL flagged in the shell-quoting helper.
+    expect(sanitiseForSummary('a\\b')).toBe('a\\\\b');
+  });
+
+  it('strips control characters that could corrupt the summary', () => {
+    expect(sanitiseForSummary('a\u0000b\u001Fc')).toBe('a b c');
+    expect(sanitiseForSummary('line1\nline2')).toBe('line1 line2');
+  });
+
+  it('caps length so one work item cannot flood the summary', () => {
+    expect(sanitiseForSummary('x'.repeat(500)).length).toBeLessThanOrEqual(200);
+  });
+
+  it('handles null and undefined without printing them', () => {
+    expect(sanitiseForSummary(null)).toBe('');
+    expect(sanitiseForSummary(undefined)).toBe('');
   });
 });
 
