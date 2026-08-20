@@ -477,7 +477,9 @@ Write-Host "  Created : $script:Created" -ForegroundColor Green
 Write-Host "  Existing: $script:Existing" -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor White
-Write-Host "  1. Connect Azure Boards to the GitHub repository (Project settings > GitHub connections)"
-Write-Host "  2. Run the bridge:  npm run start --workspace @contoso/ado-github-bridge -- sync --dry-run"
+Write-Host "  1. Verify the Azure Boards to GitHub connection is configured (Project settings > GitHub connections)"
+Write-Host "     and that the target repository is linked (required for AB# traceability and native Copilot handoff)"
+Write-Host "  2. To start implementation: open a refined 'ai-ready' work item in Azure Boards and use the"
+Write-Host "     built-in Copilot action — Copilot will create a copilot/ branch and draft PR automatically"
 Write-Host "  3. Add the 'Release Gate - active Sev1 Sev2 bugs' query as a check on the prod environment"
 Write-Host ""

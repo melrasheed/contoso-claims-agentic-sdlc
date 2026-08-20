@@ -1,4 +1,7 @@
 import { firstLine, run, safeCheck } from '../exec.js';
+import { readdirSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join, resolve as resolvePath } from 'node:path';
 import type { CheckResult, PreflightContext } from '../types.js';
 
 const CATEGORY = 'GitHub' as const;
@@ -172,6 +175,76 @@ async function ghJson<T>(args: string[]): Promise<{ data?: T; status: number; ra
   } catch {
     return { status, raw };
   }
+}
+
+/**
+ * Pure: extract all job names and job key identifiers from a workflow YAML text.
+ * Returns both `name:` display values and the 2-space-indented job key names so
+ * the caller can match required-status-check contexts against either form.
+ */
+export function extractWorkflowJobNames(yamlText: string): string[] {
+  const names = new Set<string>();
+  let inJobsBlock = false;
+  for (const line of yamlText.split('\n')) {
+    if (/^jobs:\s*$/.test(line)) { inJobsBlock = true; continue; }
+    // Any non-indented key ends the jobs block
+    if (inJobsBlock && /^[a-zA-Z]/.test(line)) { inJobsBlock = false; }
+    if (!inJobsBlock) continue;
+    // Job key at exactly 2-space indent: `  my-job:`
+    const keyMatch = /^  ([a-zA-Z0-9_-]+)\s*:/.exec(line);
+    if (keyMatch?.[1]) { names.add(keyMatch[1]); continue; }
+    // Job display name at exactly 4-space indent: `    name: My Job Name`
+    const nameMatch = /^    name:\s+(.+?)\s*$/.exec(line);
+    if (nameMatch?.[1]) { names.add(nameMatch[1]); }
+  }
+  return Array.from(names);
+}
+
+/**
+ * Pure: every required-status-check context in the branch ruleset must match at
+ * least one declared workflow job name (or job key). A context that never matches
+ * is required but never reported — the branch looks protected while enforcing
+ * nothing.
+ *
+ * Matching is liberal: `ctx === name`, or the context ends with `/ name` (the
+ * "Workflow / job-name" format GitHub uses in some UIs).
+ */
+export function evaluateRequiredStatusChecks(
+  requiredContexts: string[],
+  workflowJobNames: string[]
+): CheckResult {
+  if (requiredContexts.length === 0) {
+    return {
+      id: 'github.required-status-checks',
+      category: CATEGORY,
+      name: 'Required status checks match workflow jobs',
+      status: 'warn',
+      detail: 'No required status check contexts found in the branch ruleset — the branch can merge without CI passing',
+      hint: 'Add a required_status_checks rule to the branch ruleset targeting the CI job name, then re-run.'
+    };
+  }
+  const matches = (ctx: string): boolean =>
+    workflowJobNames.some((n) => n === ctx || ctx === `${n}` || ctx.endsWith(`/ ${n}`) || ctx.endsWith(`/${n}`));
+  const unmatched = requiredContexts.filter((ctx) => !matches(ctx));
+  if (unmatched.length > 0) {
+    return {
+      id: 'github.required-status-checks',
+      category: CATEGORY,
+      name: 'Required status checks match workflow jobs',
+      status: 'fail',
+      detail: `Required context(s) [${unmatched.join(', ')}] do not match any job name in .github/workflows/*.yml (declared names: [${workflowJobNames.join(', ')}]). These checks are listed as required but are never reported — the ruleset enforces nothing while the branch appears protected.`,
+      hint: `Rename the workflow job to match the required context exactly, or update the branch ruleset context to match the job name. Run tools/configure-branch-protection.ps1 to apply the correct contexts.`,
+      meta: { requiredContexts, workflowJobNames, unmatched }
+    };
+  }
+  return {
+    id: 'github.required-status-checks',
+    category: CATEGORY,
+    name: 'Required status checks match workflow jobs',
+    status: 'pass',
+    detail: `All ${requiredContexts.length} required context(s) [${requiredContexts.join(', ')}] match declared workflow job names`,
+    meta: { requiredContexts, workflowJobNames }
+  };
 }
 
 export async function runGitHubChecks(ctx: PreflightContext): Promise<CheckResult[]> {
@@ -358,6 +431,58 @@ export async function runGitHubChecks(ctx: PreflightContext): Promise<CheckResul
         detail: `Actions enabled (allowed actions: ${data.allowed_actions ?? 'all'})`,
         meta: { allowedActions: data.allowed_actions }
       };
+    })
+  );
+
+  results.push(
+    await safeCheck('github.required-status-checks', CATEGORY, 'Required status checks match workflow jobs', async () => {
+      // Fetch the effective branch ruleset to extract required status check contexts.
+      const rulesRes = await ghJson<BranchRule[]>(['api', `repos/${repoSlug}/rules/branches/${defaultBranch}`]);
+      const rules: BranchRule[] = Array.isArray(rulesRes.data) ? rulesRes.data : [];
+      const statusRule = rules.find((r) => r.type === 'required_status_checks');
+      const requiredContexts: string[] = (
+        (statusRule?.parameters as { required_status_checks?: Array<{ context?: string }> })
+          ?.required_status_checks ?? []
+      ).map((s) => s.context).filter((c): c is string => Boolean(c));
+
+      // Locate .github/workflows: try module-relative path (tools/preflight/dist/checks/github.js
+      // → up 5 levels → repo root), then INIT_CWD (set by npm to the invocation dir), then cwd.
+      const moduleDir = dirname(fileURLToPath(import.meta.url));
+      const repoRootGuess = resolvePath(moduleDir, '..', '..', '..', '..', '..');
+      const candidates = [
+        join(repoRootGuess, '.github', 'workflows'),
+        join(process.env.INIT_CWD ?? '', '.github', 'workflows'),
+        join(resolvePath('.'), '.github', 'workflows')
+      ];
+
+      let workflowJobNames: string[] = [];
+      let found = false;
+      for (const workflowDir of candidates) {
+        try {
+          const files = readdirSync(workflowDir).filter((f) => /\.(yml|yaml)$/i.test(f));
+          for (const file of files) {
+            const text = readFileSync(join(workflowDir, file), 'utf8');
+            workflowJobNames = workflowJobNames.concat(extractWorkflowJobNames(text));
+          }
+          found = true;
+          break;
+        } catch {
+          // try next candidate
+        }
+      }
+
+      if (!found) {
+        return {
+          id: 'github.required-status-checks',
+          category: CATEGORY,
+          name: 'Required status checks match workflow jobs',
+          status: 'warn' as const,
+          detail: 'Could not read .github/workflows/ — run preflight from the repository root',
+          hint: 'cd to the repository root and re-run npm run preflight'
+        };
+      }
+
+      return evaluateRequiredStatusChecks(requiredContexts, workflowJobNames);
     })
   );
 

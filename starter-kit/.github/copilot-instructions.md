@@ -14,8 +14,8 @@ It is two things at once:
 
 | System | Role | Never do this |
 |---|---|---|
-| **Azure DevOps** (`<ADO_PROJECT>` project) | System of record: planning, backlog, test plans, release governance, audit | Do not put source code here |
-| **GitHub** (`<GH_OWNER>/<GH_REPO>`) | System of work: code, AI execution, PR review, security scanning | Do not invent independent backlog items here |
+| **Azure DevOps** (`<ADO_PROJECT>` project) | System of record: planning, backlog, test plans, release governance, audit. **Azure Boards is the only backlog.** Work reaches Copilot natively from Boards via the built-in Copilot action. | Do not put source code here. **Do not create GitHub issues** — there is no bridge and GitHub issues are not used. |
+| **GitHub** (`<GH_OWNER>/<GH_REPO>`) | System of work: code, AI execution (Copilot acts directly on Boards work items), PR review, security scanning | Do not invent independent backlog items here. **Do not reintroduce a bridge** between Boards and GitHub issues. |
 | **Azure** | Runtime and operations, including the Azure SRE Agent | Do not create resources outside the demo resource groups |
 
 **Every unit of work originates as an Azure Boards work item.** If you are asked to implement something with no work item, say so and offer to create one.
@@ -37,7 +37,6 @@ infra/             Bicep — App Service, App Insights, alerts, SRE Agent
 tools/delivery/boards-gate.mjs      Azure Boards release gate
 tools/delivery/boards-comment.mjs   Deployment write-back to Azure Boards
 tools/ado-bootstrap        Scaffolds the Azure DevOps project
-tools/ado-github-bridge    Syncs Boards work items to GitHub issues
 .github/agents/    The agent fleet definitions
 docs/              Documentation, ADRs, threat models
 starter-kit/       Reusable subset for customers

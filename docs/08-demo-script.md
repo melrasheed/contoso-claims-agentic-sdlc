@@ -26,9 +26,9 @@ Complete all of these before arriving or opening the screen share.
 
 ### Boards state
 
-- [ ] AB#2 and AB#3 exist, tagged `ai-ready`, state `To Do`
-- [ ] **AB#4 exists, tagged `sev1`, state `To Do`** — this is what makes the release gate block on cue. Verify with the `Release Gate - active Sev1 Sev2 bugs` shared query; it must return exactly one row
-- [ ] No stray `synced-to-github` or `ai-implementing` tags on the demo items (re-run bootstrap if needed)
+- [ ] AB#2 and AB#3 exist, tagged `ai-ready`, state `New`
+- [ ] **AB#4 exists as a `Bug` with Severity `1 - Critical`, state `Active`** — this is what makes the release gate block on cue. Verify with the `Release Gate - active Sev1 Sev2 bugs` shared query; it must return exactly one row
+- [ ] No stray tags on the demo items (re-run bootstrap if needed)
 
 ### Delivery state
 
@@ -39,9 +39,9 @@ Complete all of these before arriving or opening the screen share.
 
 ### GitHub state
 
-- [ ] No pre-existing issues from a previous run (close or delete them, or use a fresh repository)
-- [ ] No draft PRs from a previous run on `copilot/issue-2-*` or `copilot/issue-3-*`
+- [ ] No draft PRs from a previous run on `copilot/*` branches
 - [ ] Copilot is enabled on the repository
+- [ ] The Azure Boards → GitHub connection is configured in Project settings → GitHub connections
 
 ### SRE Agent state
 
@@ -75,31 +75,25 @@ Invoke-RestMethod -Uri "$api/api/claims" -Method GET  # Should return 200
 
 ---
 
-### 2:00–5:00 — The bridge: governed handoff
+### 2:00–5:00 — The handoff: a deliberate human decision
 
-**Say:** "We have a TypeScript tool that watches for work items tagged `ai-ready` and bridges them to GitHub with full context."
+**Say:** "The `ai-ready` tag is a triage signal — it means the item has been refined and is ready for Copilot. But nothing happens automatically. A human makes a deliberate decision. Watch."
 
 **Do:**
-```powershell
-node tools/ado-github-bridge/dist/cli.js sync
-```
+**[PORTAL]** Azure Boards → AB#2 → context menu → **Send to Copilot**.
 
-**Show:** The output:
-```
-+ AB#2 Add dual-approval for high-value claims -> #2 [copilot]
-created=1 already-synced=0 skipped=0 failed=0
-```
+**Show:** Copilot immediately creates a branch and a draft pull request.
+
+**Say:** "That is it. No bridge script. No GitHub issue. The work item goes directly to Copilot. The draft PR body contains `AB#2` — Azure Boards links to it automatically."
 
 **Show:** Azure Boards → AB#2. Point out:
-- State changed to `Doing`
-- Tags: `synced-to-github`, `ai-implementing`
-- Hyperlink relation pointing at the GitHub issue
+- The GitHub PR link has appeared as a development link on the work item
 
-**Say:** "The work item knows it is being implemented. If you query Azure Boards right now, it tells you where this is in the lifecycle. The pipeline, the code review, the deployment — all of it traces back to this item."
+**Say:** "Every unit of work still starts in Azure Boards. This is your system of record. Nothing moves to code without a work item and a human decision."
 
-> **Screenshot:** AB#2 showing the state, tags, and hyperlink relation.
+> **Screenshot:** AB#2 showing the development link to the Copilot draft PR.
 
-**If it breaks:** If sync fails, check environment variables (`ADO_ORG`, `ADO_PROJECT`, `GH_OWNER`, `GH_REPO`, `GITHUB_TOKEN`). Fall back to showing a pre-run screenshot and explaining the bridge output.
+**If it breaks:** If the Send to Copilot action is not visible, verify the GitHub connection is configured in Project settings → GitHub connections. Fall back to showing a pre-run draft PR and explaining the native integration.
 
 ---
 
@@ -113,10 +107,12 @@ created=1 already-synced=0 skipped=0 failed=0
 
 Wait a moment, then:
 
-**Show:** The draft PR on `copilot/issue-2-*`. Point out:
+**Show:** The draft PR on a `copilot/` branch. Point out:
 - `AB#2` in the PR body — Azure Boards links this automatically
 - Author: `github-copilot[bot]`
 - PR template filled in: Risk, Rollback, Test evidence
+
+**Say:** "Copilot received the work item title, description, and acceptance criteria directly from Boards. That context is what determines code quality."
 
 **Say:** "Copilot cannot approve its own PR. This is enforced by the platform. The person who triggered the agent cannot be its sole approver. This is the separation of duties argument — the same argument you apply to human developers."
 
@@ -126,7 +122,7 @@ Wait a moment, then:
 
 ```
 @security-reviewer
-Review the diff in PR #2 for exploitable vulnerabilities.
+Review the diff in this PR for exploitable vulnerabilities.
 Focus on the dual-approval workflow and whether the authorisation check is server-side.
 ```
 
@@ -159,8 +155,8 @@ gh run watch
 
 Blocking work items: 1 (tolerance 0)
 
-| ID | Type  | Title                                                  | State |
-| 4  | Issue | Adjudicating an already-paid claim returns 200 not 409 | To Do |
+| ID | Type | Title                                                  | State  |
+| 4  | Bug  | Adjudicating an already-paid claim returns 200 not 409 | Active |
 ```
 
 **Say:** "That is a real work item in Azure Boards, and the deployment just stopped because of it. Nobody wrote a rule in the pipeline saying 'don't ship' — a delivery manager put a Sev1 in the backlog, and the release respected it."
@@ -181,7 +177,7 @@ gh workflow run cd.yml -f gate-only=true
 > **Screenshot:** the failed run's job summary naming work item #4, side by side with the Boards item.
 
 **If it breaks:**
-- Gate passes when it should block: the backing query is wrong. Show the query in Boards and explain the Basic-process fallback (`sev1` tag rather than a Bug type). See `docs/07-troubleshooting.md` §12.
+- Gate passes when it should block: the backing query is wrong. Show the query in Boards and verify it filters on `[Microsoft.VSTS.Common.Severity] <= 2` and `[System.WorkItemType] = 'Bug'`. See `docs/07-troubleshooting.md` §12.
 - `azure/login` fails: OIDC subject mismatch — §11. Fall back to running `node tools/delivery/boards-gate.mjs` locally with `az login`, which produces the same output.
 
 ---
@@ -243,7 +239,7 @@ Invoke-RestMethod -Uri "$api/api/admin/fault" -Method POST -ContentType "applica
 
 ### 18:00–20:00 — Closing: what this means
 
-**Say:** "What you saw was a complete loop. A work item in Azure Boards. Governed handoff to GitHub. AI implementation. AI and human code review. A delivery workflow that refused to ship because of an open Sev1. A live incident investigated and mitigated by an AI agent in Review mode. A fix branch governed by the same controls as a human's code."
+**Say:** "What you saw was a complete loop. A work item in Azure Boards. A human made a deliberate decision to hand it to Copilot — no automation, no bridge, one click. AI implementation. AI and human code review. A delivery workflow that refused to ship because of an open Sev1 bug. A live incident investigated and mitigated by an AI agent in Review mode. A fix branch governed by the same controls as a human's code."
 
 "Azure DevOps is where your project managers, auditors and release managers work — and it stays authoritative over whether a release may proceed. GitHub is where the code, the AI execution and the delivery happen. Azure is the runtime. The AI agents accelerate the work — they do not replace the governance."
 
@@ -263,7 +259,7 @@ The authored agents run on whatever model powers GitHub Copilot in the customer'
 The default is Review mode — nothing happens without human approval. Automatic mode is available but requires an explicit configuration change and a reviewed Parameter Policy. Parameter Policy can restrict the agent to a named set of resources and deny all destructive operations.
 
 **"Can we use this with our existing ADO project?"**
-Yes. The bootstrap script detects the process template (Basic, Agile, Scrum, CMMI) and adapts. The bridge works against any project. Replacing the Contoso Claims app with a customer's app is what the starter kit is for — see `starter-kit/README.md`.
+Yes. The bootstrap script detects the process template (Basic, Agile, Scrum, CMMI) and adapts. Replacing the Contoso Claims app with a customer's app is what the starter kit is for — see `starter-kit/README.md`.
 
 **"What does this cost?"**
 Copilot Business/Enterprise pricing covers the agent fleet and Copilot coding agent. The SRE Agent bills on consumed tokens — roughly £5–20 per incident investigation depending on complexity. The Azure infrastructure for this demo runs around £50–80/month. See `docs/06-sre-runbook.md` §5 for billing details.

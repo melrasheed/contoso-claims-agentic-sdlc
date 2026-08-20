@@ -15,8 +15,8 @@ Treat the second purpose as a first-class requirement. Changes must not only wor
 
 | System | Role | Never do this |
 |---|---|---|
-| **Azure DevOps** (`Agentic SDLC` project) | **Project management only** — Boards: epics, work items, acceptance criteria, tags, queries, audit trail | Don't put source code here. **Don't build pipelines here** — delivery is GitHub Actions |
-| **GitHub** (`melrasheed/contoso-claims-agentic-sdlc`) | Everything else — code, AI execution, PR review, **CI/CD**, environments, approvals, security scanning, releases | Don't invent independent backlog items here |
+| **Azure DevOps** (`Agentic SDLC` project) | **Project management only** — Boards: epics, work items, acceptance criteria, tags, queries, audit trail. **Azure Boards is the only backlog.** Work reaches Copilot natively from Boards via the built-in Copilot action. | Don't put source code here. **Don't build pipelines here** — delivery is GitHub Actions. **Do not create GitHub issues** — there is no bridge and GitHub issues are not used. |
+| **GitHub** (`melrasheed/contoso-claims-agentic-sdlc`) | Everything else — code, AI execution (Copilot acts directly on Boards work items), PR review, **CI/CD**, environments, approvals, security scanning, releases | Don't invent independent backlog items here. **Do not reintroduce a bridge** between Boards and GitHub issues. |
 | **Azure** | Runtime and operations, including the Azure SRE Agent | Don't create resources outside the demo resource groups |
 
 **Every unit of work originates as an Azure Boards work item.** If you are asked to implement something with no work item, say so and offer to create one — do not silently start coding.
@@ -35,9 +35,9 @@ Azure DevOps retains exactly one delivery responsibility: it is the authority co
 
 - This project uses Azure DevOps. **Always check whether the Azure DevOps MCP server has a tool relevant to the request** before falling back to REST or CLI.
 - Prefer MCP tools → `az` CLI → raw REST, in that order.
-- **Never assume the process template.** Azure DevOps has four system processes (Basic, Agile, Scrum, CMMI) and they do not share work item type names, field reference names, or states. This project currently runs the **Basic** process: the available types are `Epic`, `Issue`, `Task` and the test types — there is **no `Feature`, no `User Story`, no `Product Backlog Item`, and no `Bug` type**, and no acceptance criteria, repro steps or severity fields.
-- Determine the process from `capabilities.processTemplate.templateName` (fetch the project with `includeCapabilities=true`). **Do not trust the `System.Process Template` project property** — in this very project it reports "Scrum" while the real process is "Basic". `tools/ado-bootstrap/ProcessMap.psm1` encodes the correct mapping for all four processes; reuse it rather than hardcoding type names.
-- Basic states are `To Do` → `Doing` → `Done`. Do not invent states such as `Active`, `Committed` or `Resolved`.
+- **Never assume the process template.** Azure DevOps has four system processes (Basic, Agile, Scrum, CMMI) and they do not share work item type names, field reference names, or states. This project currently runs the **Agile** process: the available types are `Epic`, `Feature`, `User Story`, `Bug`, `Task`; states are `New`, `Active`, `Resolved`, `Closed`. Agile provides `Microsoft.VSTS.Common.AcceptanceCriteria`, `Microsoft.VSTS.Common.Severity`, and repro steps fields that Basic lacks.
+- Determine the process from `capabilities.processTemplate.templateName` (fetch the project with `includeCapabilities=true`). **Do not trust the `System.Process Template` project property** — in this very project it has historically disagreed with the real process. `tools/ado-bootstrap/ProcessMap.psm1` encodes the correct mapping for all four processes; reuse it rather than hardcoding type names.
+- Agile states are `New` → `Active` → `Resolved` → `Closed`. Do not invent states such as `To Do`, `Doing`, or `Committed`.
 - When parsing Azure DevOps JSON in PowerShell, use `ConvertFrom-Json -AsHashtable`. Some responses contain an empty-string property name, which plain `ConvertFrom-Json` rejects.
 
 ## Repository layout
@@ -52,7 +52,6 @@ tools/delivery/boards-gate.mjs      Azure Boards release gate (replaces the ADO 
 tools/delivery/boards-comment.mjs   Writes deployment results back to Azure Boards
 tools/preflight   Integration readiness "doctor"
 tools/ado-bootstrap        Scaffolds the Azure DevOps project
-tools/ado-github-bridge    Syncs Boards work items to GitHub issues
 .github/agents/   The agent fleet definitions
 docs/             Tutorial, agent catalog, security model, SRE runbook, business case
 starter-kit/      App-agnostic reusable subset for customers

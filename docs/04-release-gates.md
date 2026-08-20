@@ -99,15 +99,15 @@ A gate after the approval is theatre: the human has already said yes. Placing it
 
 ### Seeing it work
 
-The backing query is created by `tools/ado-bootstrap/bootstrap.ps1`. On the Basic process — which has no `Bug` type and no severity field — it falls back to matching work items tagged `sev1`, so the gate behaves identically across process templates.
+The backing query is created by `tools/ado-bootstrap/bootstrap.ps1`. On the Agile process, the query filters on `[Microsoft.VSTS.Common.Severity] <= 2` (Sev1 and Sev2) and `[System.WorkItemType] = 'Bug'` with an open state (`Active`, `New`). The Severity field is available on Agile; it was not available on the Basic process.
 
 To watch it block, then pass:
 
 ```powershell
-# Work item #4 is an open sev1, so this run fails at the gate
+# Work item #4 is an open Sev1 bug, so this run fails at the gate
 gh workflow run cd.yml -f gate-only=true
 
-# Close #4 in Azure Boards, then re-run - the gate now passes
+# Close #4 in Azure Boards (Resolved or Closed state), then re-run - the gate now passes
 gh workflow run cd.yml -f gate-only=true
 ```
 

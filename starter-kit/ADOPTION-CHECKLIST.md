@@ -64,8 +64,10 @@ Time estimates are for someone familiar with Azure and GitHub. Allow roughly dou
 
 ## Phase 2 — Azure DevOps setup (20 minutes)
 
+> **Process prerequisite.** This accelerator targets the **Agile** process. If creating a new project, select Agile. If migrating an existing project from Basic: **[PORTAL]** Organisation settings → Boards → Process → Agile → Change team projects → select the project → Change. This is irreversible; test in a throwaway project first. The bootstrap script detects the process automatically.
+
 - [ ] **2.1** [PORTAL] Create the Azure DevOps project:
-  - `https://dev.azure.com/<org>` → New project → select process (Basic recommended for simplicity)
+  - `https://dev.azure.com/<org>` → New project → select process (**Agile**)
 
 - [ ] **2.2** Bootstrap the project structure:
   ```powershell
@@ -79,10 +81,6 @@ Time estimates are for someone familiar with Azure and GitHub. Allow roughly dou
 
 - [ ] **2.4** [PORTAL] Add real team members to the project with appropriate permission levels.
 
-- [ ] **2.5** Note: if you need to change the project process from Basic to Agile/Scrum:
-  - [PORTAL] Organization settings → Boards → Process → target process → Change team projects
-  - This is irreversible — test in a throwaway project first.
-
 ---
 
 ## Phase 3 — GitHub setup (20 minutes)
@@ -93,7 +91,7 @@ Time estimates are for someone familiar with Azure and GitHub. Allow roughly dou
 
 - [ ] **3.3** [PORTAL] Configure branch protection on `main`:
   - Require pull request before merging
-  - Require status checks to pass: the exact job names from `ci.yml` (for example `Lint, typecheck, test, build`), `Analyze javascript-typescript`, and `Review dependency changes`
+  - Require status checks to pass: use the **exact job id** from `ci.yml` — `build-and-test` — plus `Analyze javascript-typescript` and `Review dependency changes`. A context that does not match a real job silently enforces nothing. If you use `tools/configure-branch-protection.ps1`, it validates this automatically.
   - Require at least 1 approval
   - Require review from CODEOWNERS
   - Do not allow bypassing the above settings
@@ -114,7 +112,11 @@ Time estimates are for someone familiar with Azure and GitHub. Allow roughly dou
   ```
   **Note:** The host is `mcp.dev.azure.com`, not `dev.azure.com`. See `docs/07-troubleshooting.md` bug #1.
 
-- [ ] **3.5** Verify ADO tools load in Copilot Chat:
+- [ ] **3.5** [PORTAL] Connect Azure Boards to GitHub:
+  - Azure DevOps → Project settings → GitHub connections → Add connection → select `<owner>/<repo>` and authorise.
+  - This enables the **Send to Copilot** action on work items. Verify it appears on a work item context menu after the connection is established.
+
+- [ ] **3.6** Verify ADO tools load in Copilot Chat:
   ```
   @sdlc-orchestrator List the current backlog items.
   ```
@@ -155,7 +157,7 @@ Time estimates are for someone familiar with Azure and GitHub. Allow roughly dou
 > No Azure Pipeline, no service connection, no variable group. Delivery runs on GitHub Actions. See `.github/WORKFLOWS.md`.
 
 - [ ] **5.1** Copy the workflows and delivery tooling into your repository:
-  - `.github/workflows/` — `ci.yml`, `codeql.yml`, `dependency-review.yml`, `cd.yml`, `ado-bridge.yml`
+  - `.github/workflows/` — `ci.yml`, `codeql.yml`, `dependency-review.yml`, `cd.yml`
   - `tools/delivery/boards-gate.mjs`, `tools/delivery/boards-comment.mjs`
   - `tools/configure-github-oidc.ps1`, `tools/configure-github-environments.ps1`
 
@@ -196,90 +198,50 @@ Time estimates are for someone familiar with Azure and GitHub. Allow roughly dou
   gh workflow run cd.yml
   ```
 
-- [ ] **5.10** Set the required status check contexts in the branch ruleset to match the **exact** job names reported by `ci.yml`. A mismatch means the check is required but never runs.
+- [ ] **5.10** Set the required status check contexts in the branch ruleset to the **exact job id** reported by `ci.yml` (`build-and-test`). A context that matches no running job silently enforces nothing. `tools/configure-branch-protection.ps1` validates this automatically.
 
 ---
 
-## Phase 6 — Bridge configuration (15 minutes)
+## Phase 6 — SRE Agent (optional, 45 minutes) [PREVIEW]
 
-- [ ] **6.1** Build the bridge:
-  ```powershell
-  cd tools/ado-github-bridge
-  npm ci
-  npm run build
-  cd ../..
-  ```
-
-- [ ] **6.2** Set environment variables:
-  ```powershell
-  $env:ADO_ORG      = "<your-org>"
-  $env:ADO_PROJECT  = "<your-project>"
-  $env:GH_OWNER     = "<gh-owner>"
-  $env:GH_REPO      = "<gh-repo>"
-  $env:GITHUB_TOKEN = "<your-github-pat>"
-  ```
-  Token must have `repo` and `issues` scopes. Add `workflow` if the bridge must push to `.github/workflows/`.
-
-- [ ] **6.3** Verify connectivity:
-  ```powershell
-  node tools/ado-github-bridge/dist/cli.js doctor
-  ```
-  Both `Azure DevOps connectivity... OK` and `GitHub connectivity... OK` must appear.
-
-- [ ] **6.4** Run a dry-run sync:
-  ```powershell
-  node tools/ado-github-bridge/dist/cli.js sync --dry-run
-  ```
-
-- [ ] **6.5** Run the first real sync:
-  ```powershell
-  node tools/ado-github-bridge/dist/cli.js sync
-  ```
-
-- [ ] **6.6** Verify write-back in Azure Boards: confirm state `Doing`, tags `synced-to-github` and `ai-implementing`, and a hyperlink relation to the GitHub issue.
-
----
-
-## Phase 7 — SRE Agent (optional, 45 minutes) [PREVIEW]
-
-- [ ] **7.1** Get your deployer object ID:
+- [ ] **6.1** Get your deployer object ID:
   ```powershell
   $oid = az ad signed-in-user show --query id -o tsv
   ```
 
-- [ ] **7.2** Add SRE Agent parameters to `infra/main.parameters.json`:
+- [ ] **6.2** Add SRE Agent parameters to `infra/main.parameters.json`:
   ```json
   "enableSreAgent":           { "value": true },
   "sreAgentMode":             { "value": "Review" },
   "sreAgentDeployerObjectId": { "value": "<your-oid>" }
   ```
 
-- [ ] **7.3** Deploy with SRE Agent enabled:
+- [ ] **6.3** Deploy with SRE Agent enabled:
   ```powershell
   .\infra\deploy.ps1 -EnvironmentName dev -NamePrefix <your-prefix>
   ```
 
-- [ ] **7.4** [PORTAL] Navigate to `https://sre.azure.com` → your agent.
+- [ ] **6.4** [PORTAL] Navigate to `https://sre.azure.com` → your agent.
 
-- [ ] **7.5** [PORTAL] Add the GitHub connector (Connectors → Add → GitHub).
+- [ ] **6.5** [PORTAL] Add the GitHub connector (Connectors → Add → GitHub).
 
-- [ ] **7.6** [PORTAL] Add the Azure DevOps connector (Connectors → Add → Azure DevOps).
+- [ ] **6.6** [PORTAL] Add the Azure DevOps connector (Connectors → Add → Azure DevOps).
 
-- [ ] **7.7** [PORTAL] Configure per-tool Parameter Policy (Tools → set Allow/Ask/Deny for each tool).
+- [ ] **6.7** [PORTAL] Configure per-tool Parameter Policy (Tools → set Allow/Ask/Deny for each tool).
 
-- [ ] **7.8** Wire Azure Monitor alerts to the SRE Agent webhook (optional — see `docs/06-sre-runbook.md` §7.4).
+- [ ] **6.8** Wire Azure Monitor alerts to the SRE Agent webhook (optional — see `docs/06-sre-runbook.md` §7.4).
 
 ---
 
-## Phase 8 — Verify end to end (15 minutes)
+## Phase 7 — Verify end to end (15 minutes)
 
-- [ ] **8.1** Create a work item in Azure Boards, tag it `ai-ready`, and run a bridge sync. Confirm a GitHub issue is created and Copilot is assigned.
+- [ ] **7.1** Create a work item in Azure Boards, tag it `ai-ready`, and use **Send to Copilot** from the work item context menu. Confirm Copilot opens a draft PR referencing the work item.
 
-- [ ] **8.2** Confirm Copilot opens a draft PR referencing the work item. Review it.
+- [ ] **7.2** Confirm the PR body contains `AB#<id>`. Review it.
 
-- [ ] **8.3** Merge the PR and confirm `cd.yml` runs: build, deploy to dev, verify, and the Azure Boards release gate.
+- [ ] **7.3** Merge the PR and confirm `cd.yml` runs: build, deploy to dev, verify, and the Azure Boards release gate.
 
-- [ ] **8.4** If the SRE Agent is deployed: run the fault-injection demo per `docs/06-sre-runbook.md` §8.
+- [ ] **7.4** If the SRE Agent is deployed: run the fault-injection demo per `docs/06-sre-runbook.md` §8.
 
 ---
 

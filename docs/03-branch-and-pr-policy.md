@@ -69,7 +69,7 @@ The following checks are required on `main` before merge. They are enforced by b
 
 | Check | Enforced by |
 |---|---|
-| `Lint, typecheck, test, build` | `.github/workflows/ci.yml` |
+| `build-and-test` | `.github/workflows/ci.yml` |
 | `Analyze javascript-typescript` (CodeQL) | `.github/workflows/codeql.yml` |
 | `Review dependency changes` | `.github/workflows/dependency-review.yml` |
 | At least one human approval | GitHub branch ruleset |
@@ -80,11 +80,18 @@ The following checks are required on `main` before merge. They are enforced by b
 
 CI runs on every pull request targeting `main`; those checks must pass before merge. Delivery (`cd.yml`) runs **after** merge — it deploys to dev, evaluates the Azure Boards release gate, and only reaches production on a deliberate `workflow_dispatch`.
 
-> **A trap worth knowing.** The required status check *context* in the branch ruleset must exactly match the job name reported by the workflow. If they differ, the check is listed as required but never runs — so the ruleset appears configured while enforcing nothing. Verify with:
+> **A silent failure to be aware of.** The required status check *context* in the branch ruleset must exactly match the job id reported by the workflow — not the display name, and not a previous name. If they differ, GitHub lists the check as required but never resolves it. The ruleset therefore appears configured while enforcing nothing, and branches look protected while the check is never actually evaluated.
+>
+> `tools/configure-branch-protection.ps1` guards against this: it reads the job names from `.github/workflows/` and refuses to apply a ruleset containing a context that matches no job, printing the available names instead. Use `-SkipCheckNameVerification` only for genuinely external checks (such as CodeQL or third-party scanners that report under fixed names).
+>
+> The CI job id is `build-and-test`. If you see the check stuck as "Waiting" on a pull request, run:
 > ```powershell
 > gh api repos/<owner>/<repo>/rules/branches/main --jq '.[] | select(.type=="required_status_checks")'
 > ```
-> and compare against the names in `gh run view <id> --json jobs`.
+> and compare the context names against the actual job ids in:
+> ```powershell
+> gh run view <id> --json jobs --jq '.jobs[].name'
+> ```
 
 There are no Azure Pipelines in this repository. Delivery is GitHub Actions — see [`09-why-this-split.md`](09-why-this-split.md).
 
@@ -104,7 +111,6 @@ There are no Azure Pipelines in this repository. Delivery is GitHub Actions — 
 | `/.github/copilot-instructions.md` | `@melrasheed` | Grounding context for all agents — a governance change |
 | `/.github/CODEOWNERS` | `@melrasheed` | Changing CODEOWNERS changes who reviews what |
 | `/.github/PULL_REQUEST_TEMPLATE.md` | `@melrasheed` | PR template is a governance artefact |
-| `/tools/ado-github-bridge/` | `@melrasheed` | Bridge bugs break traceability and audit |
 | `/docs/threat-models/` | `@melrasheed` | Security artefacts require security sign-off |
 | `/docs/05-security-model.md` | `@melrasheed` | Security model requires security sign-off |
 | `/packages/shared/src/risk*` | `@melrasheed` | Risk scoring is input to financial decisions |

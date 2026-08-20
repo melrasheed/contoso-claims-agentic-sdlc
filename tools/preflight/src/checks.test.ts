@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { compareProcessTemplate, buildAiReadyWiql, evaluateWorkItemTypes, resolveProcessTemplateName } from './checks/azure-devops.js';
+import { compareProcessTemplate, evaluateWorkItemTypes, resolveProcessTemplateName } from './checks/azure-devops.js';
 import { evaluateProviderState, evaluateRoles } from './checks/azure.js';
-import { evaluateBranchRules, evaluateCopilotActor, evaluateTokenScopes, parseTokenScopes, type BranchRule } from './checks/github.js';
+import { evaluateBranchRules, evaluateCopilotActor, evaluateRequiredStatusChecks, evaluateTokenScopes, extractWorkflowJobNames, parseTokenScopes, type BranchRule } from './checks/github.js';
 import { collectEntryUrls, evaluateMcpConfig } from './checks/mcp.js';
 import { evaluateAzLogin, evaluateNodeVersion, parseNodeMajor } from './checks/tooling.js';
 import { firstLine, redact } from './exec.js';
@@ -167,12 +167,6 @@ describe('azure devops checks', () => {
     expect(evaluateWorkItemTypes([]).status).toBe('fail');
   });
 
-  it('builds a WIQL query that escapes quotes in the project name', () => {
-    expect(buildAiReadyWiql('Agentic SDLC')).toContain("[System.TeamProject] = 'Agentic SDLC'");
-    expect(buildAiReadyWiql("O'Brien")).toContain("'O''Brien'");
-    expect(buildAiReadyWiql('Agentic SDLC')).toContain("[System.Tags] CONTAINS 'ai-ready'");
-  });
-
   it('resolves the System.Process Template property whether it holds a GUID or a name', () => {
     const processes = [
       { id: 'b8a3a935-7e91-48b8-a94c-606d37c3e9f2', name: 'Basic' },
@@ -259,6 +253,91 @@ describe('mcp checks', () => {
   it('warns when there is no azure-devops entry', () => {
     const results = evaluateMcpConfig({ mcpServers: { 'microsoft-learn': { url: 'https://learn.microsoft.com/api/mcp' } } }, 'melrasheed');
     expect(results.find((r) => r.id === 'mcp.azure-devops')?.status).toBe('warn');
+  });
+});
+
+describe('required status checks contract', () => {
+  const sampleWorkflow = `
+name: CI
+on:
+  push:
+    branches: [main]
+jobs:
+  ci:
+    name: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+  lint:
+    name: Lint and typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+`;
+
+  it('extracts both job keys and display names', () => {
+    const names = extractWorkflowJobNames(sampleWorkflow);
+    expect(names).toContain('ci');
+    expect(names).toContain('build-and-test');
+    expect(names).toContain('lint');
+    expect(names).toContain('Lint and typecheck');
+  });
+
+  it('stops collecting after the jobs block ends', () => {
+    const yaml = `
+name: CD
+on: push
+jobs:
+  deploy:
+    name: deploy-prod
+    runs-on: ubuntu-latest
+env:
+  name: this-is-not-a-job
+`;
+    const names = extractWorkflowJobNames(yaml);
+    expect(names).toContain('deploy');
+    expect(names).toContain('deploy-prod');
+    expect(names).not.toContain('this-is-not-a-job');
+  });
+
+  it('PASS when all required contexts match workflow job names', () => {
+    const result = evaluateRequiredStatusChecks(['build-and-test'], ['ci', 'build-and-test', 'lint']);
+    expect(result.status).toBe('pass');
+    expect(result.detail).toContain('build-and-test');
+  });
+
+  it('PASS when context uses "Workflow / job-name" format', () => {
+    const result = evaluateRequiredStatusChecks(['CI / build-and-test'], ['ci', 'build-and-test']);
+    expect(result.status).toBe('pass');
+  });
+
+  it('FAIL when a required context matches no job name — the silent protection hole', () => {
+    // This is the real bug: ruleset required "build-and-test" but CI job was
+    // named "Lint, typecheck, test, build". They never matched.
+    const result = evaluateRequiredStatusChecks(
+      ['build-and-test'],
+      ['ci', 'Lint, typecheck, test, build']
+    );
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('build-and-test');
+    expect(result.detail).toContain('never reported');
+    expect(result.hint).toContain('configure-branch-protection');
+    expect((result.meta as { unmatched?: string[] })?.unmatched).toEqual(['build-and-test']);
+  });
+
+  it('WARN when no required contexts are configured', () => {
+    const result = evaluateRequiredStatusChecks([], ['ci', 'build-and-test']);
+    expect(result.status).toBe('warn');
+    expect(result.hint).toContain('required_status_checks');
+  });
+
+  it('FAIL lists all unmatched contexts, not just the first', () => {
+    const result = evaluateRequiredStatusChecks(
+      ['check-a', 'check-b', 'build-and-test'],
+      ['build-and-test']
+    );
+    expect(result.status).toBe('fail');
+    expect((result.meta as { unmatched?: string[] })?.unmatched).toEqual(['check-a', 'check-b']);
   });
 });
 

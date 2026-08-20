@@ -7,8 +7,6 @@ const CATEGORY = 'Azure DevOps' as const;
 const ADO_RESOURCE_ID = '499b84ac-1321-427f-aa17-267ca6975798';
 const API = 'api-version=7.1';
 
-export const AI_READY_TAG = 'ai-ready';
-
 interface AdoAuth {
   header: string;
   /** Where the credential came from - never the credential itself. */
@@ -143,11 +141,6 @@ export function evaluateWorkItemTypes(names: string[]): CheckResult {
     detail: `${names.length} types: ${names.join(', ')}`,
     meta: { workItemTypes: names }
   };
-}
-
-/** Pure: WIQL used to detect work items that are ready for the agent. */
-export function buildAiReadyWiql(project: string, tag = AI_READY_TAG): string {
-  return `SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = '${project.replace(/'/g, "''")}' AND [System.Tags] CONTAINS '${tag}'`;
 }
 
 /**
@@ -316,61 +309,12 @@ export async function runAzureDevOpsChecks(ctx: PreflightContext): Promise<Check
   );
 
   results.push(
-    await safeCheck('ado.ai-ready-tag', CATEGORY, `"${AI_READY_TAG}" tagged work items`, async () => {
-      if (!projectId) {
-        return {
-          id: 'ado.ai-ready-tag',
-          category: CATEGORY,
-          name: `"${AI_READY_TAG}" tagged work items`,
-          status: 'warn' as const,
-          detail: 'Skipped - project not resolved',
-          hint: 'Fix the project check first.'
-        };
-      }
-      const res = await adoFetch<{ workItems?: Array<{ id?: number }> }>(`${projectPath}/_apis/wit/wiql?${API}`, {
-        method: 'POST',
-        body: JSON.stringify({ query: buildAiReadyWiql(project) })
-      });
-      if (!res.ok) {
-        return {
-          id: 'ado.ai-ready-tag',
-          category: CATEGORY,
-          name: `"${AI_READY_TAG}" tagged work items`,
-          status: 'warn' as const,
-          detail: `WIQL query failed (${res.error ?? 'unknown error'})`,
-          hint: 'Ensure the credential has "Work items (Read)" scope, then retry.'
-        };
-      }
-      const count = res.data?.workItems?.length ?? 0;
-      if (count === 0) {
-        return {
-          id: 'ado.ai-ready-tag',
-          category: CATEGORY,
-          name: `"${AI_READY_TAG}" tagged work items`,
-          status: 'warn' as const,
-          detail: `No work items tagged "${AI_READY_TAG}" - the ADO -> GitHub bridge will have nothing to sync`,
-          hint: `Tag at least one work item: \`az boards work-item update --id <id> --fields "System.Tags=${AI_READY_TAG}" --organization https://dev.azure.com/${org}\`.`,
-          meta: { count }
-        };
-      }
-      return {
-        id: 'ado.ai-ready-tag',
-        category: CATEGORY,
-        name: `"${AI_READY_TAG}" tagged work items`,
-        status: 'pass' as const,
-        detail: `${count} work item(s) tagged "${AI_READY_TAG}"`,
-        meta: { count }
-      };
-    })
-  );
-
-  results.push(
-    await safeCheck('ado.github-connection', CATEGORY, 'GitHub connection configured', async () => {
+    await safeCheck('ado.github-connection', CATEGORY, 'GitHub connection and linked repository', async () => {
       if (!projectId) {
         return {
           id: 'ado.github-connection',
           category: CATEGORY,
-          name: 'GitHub connection configured',
+          name: 'GitHub connection and linked repository',
           status: 'warn' as const,
           detail: 'Skipped - project not resolved',
           hint: 'Fix the project check first.'
@@ -383,31 +327,72 @@ export async function runAzureDevOpsChecks(ctx: PreflightContext): Promise<Check
         return {
           id: 'ado.github-connection',
           category: CATEGORY,
-          name: 'GitHub connection configured',
+          name: 'GitHub connection and linked repository',
           status: 'warn' as const,
           detail: `Could not read GitHub connections (${res.error ?? 'unknown error'})`,
-          hint: `Check manually at Azure DevOps -> ${project} -> Project settings -> GitHub connections.`
+          hint: `Check manually at Azure DevOps -> ${project} -> Project settings -> GitHub connections. The connection is required for AB# traceability and the native Copilot handoff from Boards.`
         };
       }
-      const count = res.data?.value?.length ?? res.data?.count ?? 0;
-      if (count === 0) {
+      const connections = res.data?.value ?? [];
+      if (connections.length === 0) {
         return {
           id: 'ado.github-connection',
           category: CATEGORY,
-          name: 'GitHub connection configured',
+          name: 'GitHub connection and linked repository',
+          status: 'fail' as const,
+          detail: 'No GitHub connection on the project — AB# traceability links will not be created and the native Copilot handoff from Boards will not work',
+          hint: `Add one at Azure DevOps -> ${project} -> Project settings -> GitHub connections -> Connect your GitHub account, then link the ${ctx.ghOwner}/${ctx.ghRepo} repository.`,
+          meta: { connectionCount: 0 }
+        };
+      }
+      // Verify the expected repository appears in the linked repos for at least one connection.
+      const expectedRepo = `${ctx.ghOwner}/${ctx.ghRepo}`;
+      let foundRepo = false;
+      const linkedRepos: string[] = [];
+      for (const conn of connections) {
+        if (!conn.id) continue;
+        const reposRes = await adoFetch<{
+          value?: Array<{
+            gitHubRepositoryUrl?: string;
+            gitHubRepository?: { fullName?: string };
+            fullName?: string;
+            name?: string;
+          }>;
+        }>(`${projectPath}/_apis/githubconnections/${conn.id}/repos?api-version=7.1-preview.1`);
+        if (reposRes.ok && reposRes.data?.value) {
+          for (const repo of reposRes.data.value) {
+            // This endpoint identifies the repository by URL. `name` is
+            // frequently returned empty and `fullName` is not present at all,
+            // so deriving owner/repo from the URL is the only reliable route -
+            // matching on the other fields silently reports a correctly linked
+            // repository as missing.
+            const fromUrl = repo.gitHubRepositoryUrl
+              ? (/github\.com\/([^/]+\/[^/.]+)/i.exec(repo.gitHubRepositoryUrl)?.[1] ?? '')
+              : '';
+            const name = fromUrl || repo.gitHubRepository?.fullName || repo.fullName || repo.name || '';
+            if (name) linkedRepos.push(name);
+            if (name.toLowerCase() === expectedRepo.toLowerCase()) foundRepo = true;
+          }
+        }
+      }
+      if (!foundRepo) {
+        return {
+          id: 'ado.github-connection',
+          category: CATEGORY,
+          name: 'GitHub connection and linked repository',
           status: 'warn' as const,
-          detail: 'No GitHub connection on the project - Boards will not auto-link commits/PRs',
-          hint: `Add one at Azure DevOps -> ${project} -> Project settings -> GitHub connections -> Connect your GitHub account.`,
-          meta: { count: 0 }
+          detail: `${connections.length} GitHub connection(s) found but "${expectedRepo}" is not among the linked repos (found: ${linkedRepos.length > 0 ? linkedRepos.join(', ') : 'none readable'})`,
+          hint: `In Azure DevOps -> ${project} -> Project settings -> GitHub connections, add "${expectedRepo}" to the connection. Without it, AB# links, commit traceability, and the native Copilot handoff will not work.`,
+          meta: { connectionCount: connections.length, expectedRepo, linkedRepos }
         };
       }
       return {
         id: 'ado.github-connection',
         category: CATEGORY,
-        name: 'GitHub connection configured',
+        name: 'GitHub connection and linked repository',
         status: 'pass' as const,
-        detail: `${count} GitHub connection(s) configured`,
-        meta: { count }
+        detail: `GitHub connection configured and "${expectedRepo}" is linked (${connections.length} connection(s), ${linkedRepos.length} repo(s) total)`,
+        meta: { connectionCount: connections.length, expectedRepo, linkedRepos }
       };
     })
   );

@@ -9,19 +9,17 @@ This document models the security of the **Agentic SDLC Accelerator system itsel
 The system that requires modelling consists of:
 
 1. **The agent fleet** — nine prompt files that direct AI behaviour across the whole SDLC.
-2. **The ADO–GitHub bridge** — a TypeScript process with write access to both Azure DevOps and GitHub.
-3. **The GitHub Actions delivery workflow** — `cd.yml`, holding Azure deployment rights via OIDC federation.
-4. **The Azure Boards release gate** — `tools/delivery/boards-gate.mjs`, a control with read access to Azure DevOps that decides whether a release proceeds.
-5. **The Azure SRE Agent** — a managed Azure service with read/write access to Azure resources, GitHub, and Azure DevOps.
-6. **The MCP server configuration** — credentials that grant the agent fleet access to Azure DevOps.
+2. **The GitHub Actions delivery workflow** — `cd.yml`, holding Azure deployment rights via OIDC federation.
+3. **The Azure Boards release gate** — `tools/delivery/boards-gate.mjs`, a control with read access to Azure DevOps that decides whether a release proceeds.
+4. **The Azure SRE Agent** — a managed Azure service with read/write access to Azure resources, GitHub, and Azure DevOps.
+5. **The MCP server configuration** — credentials that grant the agent fleet access to Azure DevOps.
 
 ```mermaid
 flowchart TB
     Developer["Developer (trusted)"] -->|prompts| Agents["Agent fleet (.github/agents/)"]
     Agents -->|MCP tools| ADO["Azure DevOps (write: work items)"]
-    Bridge["ADO-GitHub bridge"] -->|reads| ADO
-    Bridge -->|writes| GH["GitHub (issues, assigns Copilot)"]
-    CopilotCoding["Copilot coding agent"] -->|draft PRs| GH
+    Agents -->|native Boards action| CopilotCoding["Copilot coding agent"]
+    CopilotCoding -->|draft PRs| GH["GitHub"]
     GH -->|triggers| Actions["GitHub Actions cd.yml"]
     Actions -->|queries| ADO
     Actions -->|OIDC, no secret| Azure["Azure resources"]
@@ -38,12 +36,11 @@ flowchart TB
 | Actor | Trust level | Can write to production? |
 |---|---|---|
 | Human developer | Trusted | No — must go through branch protection, the Boards gate and environment approval |
-| Authored agent (prompt file) | Constrained | Only through ADO work items and GitHub issues |
+| Authored agent (prompt file) | Constrained | Only through ADO work items |
 | Copilot coding agent | Limited | No — creates draft PRs only; cannot merge or approve |
-| ADO–GitHub bridge | Service | No — creates GitHub issues and updates ADO work items; does not touch Azure |
 | GitHub Actions `cd.yml` | Service (OIDC) | Yes — but only from a job that has satisfied the `prod` environment's protection rules |
 | Azure SRE Agent | Managed service | Reads: yes. Writes: only when `accessLevel=High` and tools are set to Allow/Ask |
-| GitHub Actions `GITHUB_TOKEN` | Limited | Can push code; cannot assign Copilot coding agent (needs PAT) |
+| GitHub Actions `GITHUB_TOKEN` | Limited | Can push code; cannot assign Copilot coding agent (needs a user action from Boards) |
 
 ---
 
@@ -176,21 +173,17 @@ Authored agents are grounded by `.github/copilot-instructions.md`. The guardrail
 |---|---|---|
 | Azure subscription credentials | **Nowhere — not stored** | OIDC federation, environment-scoped, short-lived |
 | Azure runtime credentials | App Service managed identity | No secret — platform-assigned |
-| ADO API token (gate and bridge) | Entra ID via `azure/login`, or `ADO_PAT` fallback | Prefer Entra; PAT only where OIDC to Azure DevOps is unavailable |
-| GitHub token (bridge) | Actions secret (`BRIDGE_GITHUB_TOKEN`) | PAT with minimum required scopes |
+| ADO API token (gate) | Entra ID via `azure/login`, or `ADO_PAT` fallback | Prefer Entra; PAT only where OIDC to Azure DevOps is unavailable |
 | MCP server token | `~/.copilot/mcp-config.json` | Per-user credential — never committed |
 
 **Rules enforced in `.github/copilot-instructions.md`:**
 - No secrets in source, ever — including tests, comments, sample `.env` files, or documentation examples.
 - Authenticate to Azure at runtime with managed identity.
 - Authenticate GitHub Actions to Azure with OIDC federation.
-- GitHub token scopes: `repo` + `issues` for normal bridge operation; add `workflow` only if the bridge must push to `.github/workflows/`.
 
 ### The only long-lived secret
 
 `ADO_PAT`, and only where Entra ID authentication to Azure DevOps is unavailable. It needs **Work Items (Read)** for the gate and **Work Items (Read & Write)** for the deployment write-back — nothing more. Prefer OIDC and delete the PAT.
-
-Everything else is federated or platform-assigned. There is no credential in this repository that an attacker could steal and reuse.
 
 ---
 
@@ -217,11 +210,11 @@ Every AI-generated change must be traceable from a regulatory standpoint. The sy
 | Event | Record |
 |---|---|
 | Work item created/refined by agent | Azure Boards comment and state history |
-| Issue created by bridge | GitHub issue body contains `AB#<id>` and a bridge attribution comment |
+| Human sends work item to Copilot from Boards | Azure Boards records the action; Copilot opens a draft PR with `AB#<id>` in the body |
 | Copilot opens a draft PR | PR author is `github-copilot[bot]`; PR body must tick the "GitHub Copilot coding agent" authorship checkbox |
 | SRE Agent opens a fix branch | PR author is the SRE Agent service principal; ADO Bug is filed with remediation summary |
 | Human merges | Merge commit records the approver identity |
-| Pipeline runs | Azure DevOps pipeline run log records OIDC identity and deployment timestamp |
+| Pipeline runs | Azure DevOps deployment write-back records OIDC identity and deployment timestamp |
 
 **The gap:** If the authorship checkbox in the PR template is not ticked, there is no automated enforcement. This is a process control. For regulated environments, consider a pipeline step that fails the PR if the authorship section is empty.
 
@@ -236,7 +229,7 @@ The governance argument for regulated industries (banking, insurance, healthcare
 | No single actor can both author and approve a change | Branch protection + CODEOWNERS; Copilot cannot approve its own PR |
 | AI-generated changes are identifiable | Author field + PR authorship checkbox |
 | AI-generated changes undergo human review | Required approvals; security-reviewer engagement |
-| All production changes are traceable to a work item | `AB#<id>` in PR body; bridge creates the link; pipeline gates block on unlinked items |
+| All production changes are traceable to a work item | `AB#<id>` in PR body; Boards native connection creates the link |
 | Production deployments are gated and time-controlled | Query Work Items gate; Business Hours gate; Approvals |
 | Automated remediations are logged | SRE Agent files ADO Bug and GitHub issue; Review mode requires explicit approval |
 | The system cannot be silently bypassed | Branch protection rules enforce the checks; `continueOnError` is forbidden by the devops-engineer agent's guardrails |

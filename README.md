@@ -13,13 +13,12 @@ This repository shows how **Azure DevOps**, **GitHub**, and **Azure** combine in
 ```mermaid
 flowchart TB
     subgraph ADO ["Azure DevOps - planning only"]
-        Boards["Boards: Epics, Issues, Tasks"]
+        Boards["Boards: Epics, User Stories, Bugs, Tasks"]
         TestPlans["Test Plans"]
         Queries["Shared Queries: release gate"]
     end
 
     subgraph GH ["GitHub - code, AI and delivery"]
-        Issues["Issues: Copilot coding agent"]
         PRs["Pull Requests: Copilot code review"]
         GHAS["GHAS: CodeQL, Dependabot, secret scan"]
         CI["Actions ci.yml"]
@@ -45,8 +44,7 @@ flowchart TB
         SL["sre-liaison"]
     end
 
-    Boards -- "bridge syncs ai-ready items" --> Issues
-    Issues -- "Copilot creates draft PR" --> PRs
+    Boards -- "human sends to Copilot" --> PRs
     PRs -- "AB# token links back" --> Boards
     PRs --> CI
     CI -- "merge to main" --> CD
@@ -92,7 +90,7 @@ That is what keeps Azure Boards authoritative over releases without Azure DevOps
 | `devops-engineer` | Copilot Chat | Authors pipelines, Bicep, and release gate configuration |
 | `release-manager` | Copilot Chat | Produces release notes and readiness summaries |
 | `sre-liaison` | Copilot Chat | Reviews SRE Agent remediation; closes incidents as backlog |
-| GitHub Copilot coding agent | GitHub (cloud) | Implements issues as draft PRs; assigned by the bridge |
+| GitHub Copilot coding agent | GitHub (cloud) | Implements work items as draft PRs; triggered from Azure Boards |
 | Copilot code review | GitHub (PR) | Automated PR review on every pull request |
 | **Azure SRE Agent** | Azure (managed service) | Detects, investigates, mitigates, and files incidents |
 
@@ -107,11 +105,11 @@ The first nine are *authored agents* — prompt files in `.github/agents/`. The 
 | Reference app (Contoso Claims API + Web) | Working — 182 tests passing |
 | Agent fleet definitions | Written — use in any GitHub Copilot-enabled org |
 | ADO bootstrap script | Working — tested against `melrasheed/Agentic SDLC` |
-| ADO–GitHub bridge | Working — synced AB#2 and AB#3 with write-back verified |
+| Azure Boards → GitHub connection | Configured — connection id `932425cc-...`, linked to `melrasheed/contoso-claims-agentic-sdlc` |
 | Bicep infrastructure | Deployed — dev environment live on Azure App Service |
-| GitHub Actions CI | Working — required check on `main` |
+| GitHub Actions CI | Working — required check on `main` (`build-and-test`) |
 | GitHub Actions CD (`cd.yml`) | Authored — needs OIDC federation and environments (two scripts) |
-| Azure Boards release gate | Built and unit tested — blocks on open Sev1 work items |
+| Azure Boards release gate | Built and unit tested — blocks on open Sev1/Sev2 bugs |
 | Azure SRE Agent | Deployed in Review mode — GitHub/ADO connectors require portal setup |
 | MCP server config | Template only — paths and tokens are per-user |
 
