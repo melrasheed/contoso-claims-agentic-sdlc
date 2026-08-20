@@ -98,14 +98,22 @@ try {
     Write-Step 'Environment: dev'
     # Deliberately unprotected. Dev exists to find problems, and a gate that
     # delays feedback on a dev deployment has negative value.
+    #
+    # `prevent_self_review` is deliberately omitted rather than set to false:
+    # the API rejects it with HTTP 422 unless at least one required reviewer is
+    # also configured ("Required reviewers must have at least one reviewer to
+    # set prevent_self_review").
     if ($PSCmdlet.ShouldProcess("$Repository/dev", 'Create or update environment')) {
-        $devBody = @{ wait_timer = 0; prevent_self_review = $false } | ConvertTo-Json -Depth 5 -Compress
+        $devBody = @{ wait_timer = 0 } | ConvertTo-Json -Depth 5 -Compress
         $tmp = New-TemporaryFile
         try {
             $devBody | Set-Content -Path $tmp -Encoding utf8
-            gh api --method PUT "repos/$Repository/environments/dev" --input $tmp 2>&1 | Out-Null
+            $devResult = gh api --method PUT "repos/$Repository/environments/dev" --input $tmp 2>&1
             if ($LASTEXITCODE -eq 0) { Write-Ok 'dev (no protection rules — intentional)' }
-            else { Write-Warn 'could not create the dev environment' }
+            else {
+                Write-Warn 'could not create the dev environment:'
+                Write-Host $devResult -ForegroundColor Red
+            }
         }
         finally { Remove-Item $tmp -ErrorAction SilentlyContinue }
     }
@@ -113,10 +121,14 @@ try {
     # --- prod --------------------------------------------------------------
     Write-Step 'Environment: prod'
     $prodSettings = @{
-        wait_timer          = $WaitTimerMinutes
-        prevent_self_review = $true   # the deployer cannot approve their own release
+        wait_timer = $WaitTimerMinutes
     }
-    if ($reviewerPayload.Count -gt 0) { $prodSettings.reviewers = $reviewerPayload }
+    # `prevent_self_review` is only accepted alongside at least one required
+    # reviewer; sending it without one fails with HTTP 422.
+    if ($reviewerPayload.Count -gt 0) {
+        $prodSettings.reviewers = $reviewerPayload
+        $prodSettings.prevent_self_review = $true   # the deployer cannot approve their own release
+    }
     if ($ProtectedBranchOnly) {
         $prodSettings.deployment_branch_policy = @{
             protected_branches     = $true
