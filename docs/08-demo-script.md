@@ -190,7 +190,16 @@ gh workflow run cd.yml -f gate-only=true
 
 **Say:** "Let me show you what happens when something goes wrong in production."
 
-**Do:** Enable `ADMIN_ENABLED` on the App Service (pre-staged — should already be done):
+**Do:** Enable `ADMIN_ENABLED` on the App Service for the fault-injection demo:
+```powershell
+az webapp config appsettings set `
+  --resource-group <your-resource-group> `
+  --name <prefix>-api-dev `
+  --settings ADMIN_ENABLED=true
+```
+Or: Azure Portal → App Service (`<prefix>-api-dev`) → Configuration → Application settings → add `ADMIN_ENABLED` = `true` → Save.
+
+> Turn this back off after the demo. `ADMIN_ENABLED` defaults to `false` so a fresh deployment never exposes the fault-injection endpoints unless someone deliberately enables them.
 ```powershell
 $api = "https://<prefix>-api-dev.azurewebsites.net"
 Invoke-RestMethod -Uri "$api/api/admin/fault" -Method POST -ContentType "application/json" -Body '{"mode":"error","durationSeconds":300}'

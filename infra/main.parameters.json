@@ -15,7 +15,7 @@
       "value": false
     },
     "adminEnabled": {
-      "value": true
+      "value": false
     },
     "alertEmailAddress": {
       "value": "ops-team@example.com"

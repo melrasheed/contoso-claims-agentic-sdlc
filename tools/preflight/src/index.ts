@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { pathToFileURL } from 'node:url';
-import { runAzureChecks } from './checks/azure.js';import { runAzureDevOpsChecks } from './checks/azure-devops.js';
+import { runAzureChecks } from './checks/azure.js';
+import { runAzureDevOpsChecks } from './checks/azure-devops.js';
 import { runGitHubChecks } from './checks/github.js';
 import { runMcpChecks } from './checks/mcp.js';
 import { runToolingChecks } from './checks/tooling.js';

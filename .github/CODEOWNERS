@@ -19,9 +19,9 @@
 /.github/workflows/         @melrasheed
 
 # The release gate itself. Weakening it removes the block on shipping over a
-# known Sev1 defect.
-/tools/boards-gate.mjs      @melrasheed
-/tools/boards-comment.mjs   @melrasheed
+# known Sev1 defect. The whole workspace is covered so that changes to tests
+# or package.json (which could disable the gate) also require review.
+/tools/delivery/            @melrasheed
 
 # The agent fleet defines how AI behaves across the whole lifecycle.
 # Changing an agent definition silently changes the behaviour of every future

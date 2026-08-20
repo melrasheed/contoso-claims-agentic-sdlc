@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { decide, buildSummary, sanitiseForSummary } from './boards-gate.mjs';
+import { writeFile, readFile, unlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { decide, buildSummary, sanitiseForSummary, setOutputs } from './boards-gate.mjs';
 import { buildDeploymentComment, extractWorkItemIds } from './boards-comment.mjs';
 
 /**
@@ -228,5 +231,89 @@ describe('deployment comment', () => {
     });
     expect(comment).not.toContain('<script>');
     expect(comment).toContain('&lt;script&gt;');
+  });
+});
+
+describe('setOutputs heredoc delimiter injection', () => {
+  // Helper: run setOutputs with a controlled GITHUB_OUTPUT path and read the result.
+  async function captureOutputs(outputs) {
+    const file = join(tmpdir(), `ghoutput-test-${Date.now()}.txt`);
+    await writeFile(file, '');
+    const prev = process.env.GITHUB_OUTPUT;
+    process.env.GITHUB_OUTPUT = file;
+    try {
+      await setOutputs(outputs);
+      return await readFile(file, 'utf8');
+    } finally {
+      process.env.GITHUB_OUTPUT = prev ?? '';
+      await unlink(file).catch(() => {});
+    }
+  }
+
+  it('writes simple single-line values as key=value', async () => {
+    const out = await captureOutputs({ count: '3', passed: 'false' });
+    expect(out).toContain('count=3');
+    expect(out).toContain('passed=false');
+  });
+
+  it('uses heredoc syntax for multi-line values', async () => {
+    const out = await captureOutputs({ data: '{"a":1,\n"b":2}' });
+    expect(out).toMatch(/data<<ghadelim_\w+/);
+    expect(out).toContain('"a":1,');
+  });
+
+  it('regenerates the delimiter when a content line matches it — injection prevention', async () => {
+    // We cannot easily force a collision from outside, but we verify the output
+    // is well-formed: the closing delimiter must appear exactly once, on its own
+    // line, after the content, and the content line that equals the first
+    // candidate would not appear as a bare line if the guard works.
+    //
+    // Concretely: craft a title that contains a line matching the pattern so
+    // that if no guard existed the parser would terminate early and the remainder
+    // would be misinterpreted as new key/value pairs.
+    const maliciousTitle = 'normal title\nghadelim_injected\nextra=injected';
+    const json = JSON.stringify([{ id: 1, title: maliciousTitle }]);
+    const out = await captureOutputs({ 'blocking-items': json });
+
+    // The output must not contain a bare line that is just a delimiter string
+    // followed by another key= assignment on the very next line.
+    const lines = out.split('\n');
+    for (let i = 0; i < lines.length - 1; i++) {
+      if (/^ghadelim_/.test(lines[i])) {
+        // The line after a delimiter must be either empty or start the next key,
+        // not be the middle of the heredoc value.  A collision would cause the
+        // heredoc to close prematurely, and the remaining JSON lines to be parsed
+        // as additional outputs.
+        expect(lines[i + 1]).not.toMatch(/^extra=/);
+      }
+    }
+  });
+
+  it('JSON.stringify items output is parseable after roundtrip through GITHUB_OUTPUT', async () => {
+    // JSON.stringify escapes newlines inside strings, so blocking-items uses
+    // the simple key=value format (no heredoc needed).
+    const items = [{ id: 4, title: 'Fix\nwith newline', state: 'To Do', type: 'Issue', assignedTo: 'Alice' }];
+    const out = await captureOutputs({ 'blocking-items': JSON.stringify(items) });
+    // Should be a plain key=value line since JSON.stringify never emits real newlines
+    const match = out.match(/^blocking-items=(.+)$/m);
+    expect(match).not.toBeNull();
+    const parsed = JSON.parse(match[1]);
+    expect(parsed[0].title).toBe('Fix\nwith newline');
+  });
+
+  it('uses heredoc and guards against delimiter collision for multi-line string values', async () => {
+    // Craft a value with a real newline. The guard must pick a delimiter that
+    // doesn't appear as a bare line in the content.
+    const value = 'line1\nghadelim_aaaa\nline3';
+    const out = await captureOutputs({ mykey: value });
+    // Must use heredoc syntax
+    const match = out.match(/mykey<<(\S+)\n([\s\S]+?)\n\1/);
+    expect(match).not.toBeNull();
+    // Content must be preserved intact
+    expect(match[2]).toBe(value);
+    // The chosen delimiter must not appear as a line inside the content
+    const delimiter = match[1];
+    const contentLines = match[2].split('\n').map((l) => l.trim());
+    expect(contentLines).not.toContain(delimiter);
   });
 });

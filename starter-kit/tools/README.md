@@ -35,7 +35,7 @@ Optional environment variables:
 | `BRIDGE_READY_TAG` | `ai-ready` | Tag that marks items ready to sync |
 | `BRIDGE_SYNCED_TAG` | `synced-to-github` | Tag applied after successful sync |
 | `BRIDGE_ASSIGN_COPILOT` | `true` | Assign GitHub Copilot coding agent |
-| `BRIDGE_STATE_AFTER_SYNC` | `Committed` | ADO state after sync |
+| `BRIDGE_STATE_AFTER_SYNC` | (auto-detect) | ADO state after sync; defaults to the process template's in-progress state (`Doing` for Basic, `Active` for Agile/CMMI, `Committed` for Scrum) |
 | `BRIDGE_MAX_ITEMS` | `25` | Maximum items per run |
 | `BRIDGE_DRY_RUN` | `false` | Preview without writing |
 

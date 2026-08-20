@@ -349,13 +349,19 @@ async function writeGithubFile(envVar, content) {
   await appendFile(target, `${content}\n`, 'utf8');
 }
 
-async function setOutputs(outputs) {
+export async function setOutputs(outputs) {
   const target = process.env.GITHUB_OUTPUT;
   if (!target) return;
   const lines = Object.entries(outputs).map(([key, value]) => {
     const text = typeof value === 'string' ? value : JSON.stringify(value);
     if (text.includes('\n')) {
-      const delimiter = `ghadelim_${Math.random().toString(36).slice(2)}`;
+      // Pick a random delimiter and verify none of the content lines match it —
+      // a crafted work item title containing the delimiter string could otherwise
+      // break out of the heredoc block and inject arbitrary workflow outputs.
+      let delimiter;
+      do {
+        delimiter = `ghadelim_${Math.random().toString(36).slice(2)}`;
+      } while (text.split('\n').some((line) => line.trim() === delimiter));
       return `${key}<<${delimiter}\n${text}\n${delimiter}`;
     }
     return `${key}=${text}`;
@@ -394,9 +400,13 @@ async function main() {
         '::error::Failing closed. A gate that cannot check its condition must not allow a release. ' +
           'Set GATE_FAIL_ON_ERROR=false only with an accepted, recorded risk.',
       );
+      // Sanitise before embedding: the message can contain ADO API response
+      // bodies, and a response containing triple-backticks would break the
+      // Markdown code fence, potentially injecting Markdown into the summary.
+      const safeMessage = sanitiseForSummary(message, 800);
       await writeGithubFile(
         'GITHUB_STEP_SUMMARY',
-        `### Azure Boards release gate — ERROR\n\nCould not evaluate the gate, so the deployment was blocked.\n\n\`\`\`\n${message}\n\`\`\``,
+        `### Azure Boards release gate — ERROR\n\nCould not evaluate the gate, so the deployment was blocked.\n\n\`\`\`\n${safeMessage}\n\`\`\``,
       );
       return EXIT_ERROR;
     }
