@@ -25,14 +25,14 @@ Complete `docs/00-quickstart.md` prerequisites first. You need:
 
 ### 1.1 Create the Azure DevOps project
 
+> **Process prerequisite.** This accelerator uses the **Agile** process (`Epic`, `Feature`, `User Story`, `Bug`, `Task`; states `New`, `Active`, `Resolved`, `Closed`). Switching from Basic to Agile is a portal-only operation — there is no public REST API for it. **[PORTAL]** Organisation settings → Boards → Process → Agile → Change team projects → select the project → Change. This mapping is automatic: `Epic` stays `Epic`, `Issue` becomes `User Story`, `Task` stays `Task`. This is irreversible; test in a throwaway project first.
+
 **[PORTAL]** In `https://dev.azure.com/<your-org>`:
 
-1. New project → Name: `Agentic SDLC` → Visibility: Private → Version control: Git → Work item process: **Basic**
+1. New project → Name: `Agentic SDLC` → Visibility: Private → Version control: Git → Work item process: **Agile**
 2. Click **Create**.
 
-> **Screenshot:** New project dialog with Basic process selected.
-
-> **Why Basic?** The bootstrap script and bridge are process-aware and support all four ADO processes. Basic is the simplest starting point. If your org mandates Agile or Scrum, the tools detect and adapt automatically — see `tools/ado-bootstrap/ProcessMap.psm1`.
+> **Screenshot:** New project dialog with Agile process selected.
 
 ### 1.2 Bootstrap the project structure
 
@@ -54,7 +54,7 @@ The script uses your `az login` token — no PAT required. It creates:
 Expected output:
 ```
 === Resolving process template ===
-  = Process template: Basic
+  = Process template: Agile
 === Creating area paths ===
   + areas/Contoso Claims
   + areas/Platform
@@ -65,9 +65,9 @@ Expected output:
   + iterations/Sprint 3
 === Creating work items ===
   + Epic 'Agentic SDLC Demo' (#1)
-  + Issue 'Add dual-approval for high-value claims' (#2)
-  + Issue 'Show risk score banding in claims list' (#3)
-  + Task 'Bootstrap infrastructure' (#4)
+  + User Story 'Add dual-approval for high-value claims' (#2)
+  + User Story 'Show risk score banding in claims list' (#3)
+  + Bug 'Adjudicating an already-paid claim returns 200 not 409' (#4)
 === Creating shared queries ===
   + Shared Queries/Active Critical Bugs
   + Shared Queries/AI Ready Items
@@ -76,13 +76,13 @@ Expected output:
 Summary: created 14  found 0
 ```
 
-> **Screenshot:** Azure Boards showing the bootstrapped backlog with Epic #1 and items #2, #3, #4.
+> **Screenshot:** Azure Boards showing the bootstrapped backlog with Epic #1 and items #2, #3 as User Stories.
 
 ### 1.3 Verify the work items
 
-**[PORTAL]** Open Azure Boards → Backlogs. Confirm you see Epic #1 with Issues #2 and #3 as children.
+**[PORTAL]** Open Azure Boards → Backlogs. Confirm you see Epic #1 with User Stories #2 and #3 as children.
 
-Check that items #2 and #3 carry the tag `ai-ready`. That tag is what the bridge watches.
+Check that items #2 and #3 carry the tag `ai-ready`. The `ai-ready` tag is a human triage signal — it means the item is refined and ready to hand to Copilot. No automation watches it; a human makes the deliberate decision to invoke Copilot from Boards.
 
 ---
 
@@ -96,7 +96,13 @@ The repository must:
 - Have the `.github/agents/` and `.github/copilot-instructions.md` files pushed to `main`
 - Have GitHub Copilot enabled at the organisation level
 
-### 2.2 Configure the MCP server
+### 2.2 Connect Azure Boards to GitHub
+
+**[PORTAL]** In Azure DevOps → Project settings → GitHub connections → Add connection → select `<owner>/<repo>` and authorise.
+
+This connection enables the native Copilot handoff. Once configured, any work item in Boards gains a **Send to Copilot** action. When a human invokes it, Copilot creates a `copilot/` branch and opens a draft pull request linked to the work item. No GitHub issue is created at any point.
+
+### 2.3 Configure the MCP server
 
 The authored agents use the Azure DevOps MCP server. Add it to `~/.copilot/mcp-config.json`:
 
@@ -118,7 +124,7 @@ The authored agents use the Azure DevOps MCP server. Add it to `~/.copilot/mcp-c
 
 > **Note for VS Code users:** VS Code uses `"servers"` (not `"mcpServers"`) in `.vscode/mcp.json`. Same server definition, different key. See bug #2 in `docs/07-troubleshooting.md`.
 
-### 2.3 Verify agent tools load
+### 2.4 Verify agent tools load
 
 Open Copilot Chat in VS Code or GitHub.com. Type:
 
@@ -155,66 +161,29 @@ Produce an ADR and link it to the work item.
 
 The architect agent produces `docs/adr/0001-dual-approval-workflow.md` and adds a link to AB#2.
 
-### 3.3 Tag the item as ready
+### 3.3 Tag the item as ready for Copilot
 
-If the business analyst agent has not already applied the tag, do it now:
+The `ai-ready` tag is a human triage signal. When the business analyst agent has completed refinement, apply it:
 
 **[PORTAL]** Azure Boards → AB#2 → Tags → add `ai-ready`.
 
-### 3.4 Run the bridge to create a GitHub issue
+The saved query `AI Ready Items` shows all items with this tag — it is a triage view for the person deciding what to hand to Copilot next. No automation acts on it.
 
-Build the bridge first if not already done:
+### 3.4 Send the work item to Copilot from Boards
 
-```powershell
-cd tools/ado-github-bridge
-npm ci
-npm run build
-cd ../..
-```
+This is the governed handoff. A human makes a deliberate decision and a Copilot branch is created in one step.
 
-Set environment variables:
-```powershell
-$env:ADO_ORG      = "<your-ado-org>"
-$env:ADO_PROJECT  = "Agentic SDLC"
-$env:GH_OWNER     = "<your-github-owner>"
-$env:GH_REPO      = "contoso-claims-agentic-sdlc"
-$env:GITHUB_TOKEN = "<your-github-pat>"
-```
+**[PORTAL]** Azure Boards → AB#2 → context menu (the `...` icon) → **Send to Copilot** (or the equivalent action in the Boards UI after the GitHub connection is established).
 
-Dry run first:
-```powershell
-node tools/ado-github-bridge/dist/cli.js sync --dry-run
-```
+Copilot receives the work item title, description, and acceptance criteria, creates a `copilot/` branch, and opens a draft pull request. The PR body contains `AB#2`, which Azure Boards links automatically.
 
-Then sync for real:
-```powershell
-node tools/ado-github-bridge/dist/cli.js sync
-```
+> **No GitHub issue is created.** The handoff goes directly from the Azure Boards work item to a GitHub pull request. The GitHub issues tab stays empty by design.
 
-Expected output:
-```
-Bridging <org>/Agentic SDLC -> <owner>/contoso-claims-agentic-sdlc
---- Summary ---
-  + AB#2 Add dual-approval for high-value claims -> #2 [copilot]
-created=1 already-synced=0 skipped=0 failed=0
-```
+### 3.5 Verify the Copilot branch and draft PR
 
-> **Screenshot:** GitHub issue #2 showing the rich context body, assigned to Copilot.
+**[PORTAL]** GitHub → Pull requests → confirm a draft PR exists on branch `copilot/<workitem-2-slug>`.
 
-### 3.5 Verify the Azure Boards write-back
-
-**[PORTAL]** Open Azure Boards → AB#2. Confirm:
-- State changed to `Doing`
-- Tags include `synced-to-github` and `ai-implementing`
-- A Hyperlink relation exists pointing at the GitHub issue
-
-> **Screenshot:** AB#2 showing the state, tags, and hyperlink relation.
-
-### 3.6 Wait for Copilot to create a draft PR
-
-The Copilot coding agent picks up the assigned issue and creates a draft pull request, typically within a few minutes. The PR body includes `AB#2` which links it back to Azure Boards automatically.
-
-**[PORTAL]** GitHub → Pull requests → confirm a draft PR exists on branch `copilot/issue-2-*`.
+Verify the PR body contains `AB#2` — Azure Boards links to it automatically when it detects that token.
 
 > **Screenshot:** Draft PR with `AB#2` in the body, showing Copilot as author.
 
@@ -231,12 +200,12 @@ The PR is a draft — Copilot does not auto-submit. Open it and:
 3. Engage the security reviewer agent:
    ```
    @security-reviewer
-   Review the diff in PR #2 for exploitable vulnerabilities.
+   Review the diff in PR #<N> for exploitable vulnerabilities.
    ```
 4. Engage the test engineer:
    ```
    @test-engineer
-   Map the acceptance criteria on AB#2 to tests and identify any coverage gaps in PR #2.
+   Map the acceptance criteria on AB#2 to tests and identify any coverage gaps in this PR.
    ```
 
 ### 4.2 Mark the PR ready and approve
@@ -279,15 +248,15 @@ gh workflow run cd.yml -f gate-only=true
 gh run watch
 ```
 
-The run **fails on purpose**, because the sample backlog contains an open Sev1:
+The run **fails on purpose**, because the sample backlog contains an open Sev1 bug:
 
 ```
 ### Azure Boards release gate — BLOCKED
 
 Blocking work items: 1 (tolerance 0)
 
-| ID | Type  | Title                                                  | State |
-| 4  | Issue | Adjudicating an already-paid claim returns 200 not 409 | To Do |
+| ID | Type | Title                                                  | State  |
+| 4  | Bug  | Adjudicating an already-paid claim returns 200 not 409 | Active |
 ```
 
 Azure Pipelines provides this as a built-in *Query Work Items* check. GitHub Environments cannot consult an external backlog, so `tools/delivery/boards-gate.mjs` implements it. It **fails closed** — an unreachable Azure DevOps blocks the release rather than silently allowing it.
@@ -444,7 +413,7 @@ Confirm with `yes` when prompted. Deletion is asynchronous — monitor in the Az
 You have walked through the complete agentic SDLC loop:
 
 1. Backlog created and refined in Azure DevOps
-2. Work items bridged to GitHub issues and assigned to Copilot
+2. Work item sent to Copilot natively from Azure Boards; Copilot created a draft pull request
 3. Draft PRs reviewed by agents and humans
 4. Code delivered through GitHub Actions, blocked by an Azure Boards gate until the backlog was clear
 5. A live incident detected, investigated, and mitigated by the Azure SRE Agent

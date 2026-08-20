@@ -20,7 +20,6 @@ There is no `azure-pipelines.yml`, no service connection and no variable group. 
 | `.github/workflows/codeql.yml` | same path | SAST |
 | `.github/workflows/dependency-review.yml` | same path | Dependency scanning on PRs |
 | `.github/workflows/cd.yml` | same path | Delivery: build, deploy, gate, approve, swap, release |
-| `.github/workflows/ado-bridge.yml` | same path | Syncs `ai-ready` work items into GitHub issues |
 | `tools/delivery/boards-gate.mjs` | same path | **The Azure Boards release gate** |
 | `tools/delivery/boards-comment.mjs` | same path | Deployment write-back to Azure Boards |
 | `tools/configure-github-oidc.ps1` | same path | Federates GitHub to Azure — no secrets |
@@ -80,9 +79,9 @@ Creates an Entra ID application, federates it to the `dev` and `prod` environmen
 
 ### 3. Create the release gate query in Azure Boards
 
-`tools/ado-bootstrap/bootstrap.ps1` creates `Release Gate - active Sev1 Sev2 bugs` for you, adapted to your process template.
+`tools/ado-bootstrap/bootstrap.ps1` creates `Release Gate - active Sev1 Sev2 bugs` for you. On the Agile process it filters on `[Microsoft.VSTS.Common.Severity] <= 2` and `[System.WorkItemType] = 'Bug'` with an open state (`New`, `Active`).
 
-If you write your own, **test that it returns rows**. A query that matches nothing is a gate that always passes — the most dangerous possible failure, because it looks identical to a healthy system. On the Basic process there is no `Bug` type and no severity field, so filter on a tag instead.
+If you write your own, **test that it returns rows**. A query that matches nothing is a gate that always passes — the most dangerous possible failure, because it looks identical to a healthy system.
 
 ### 4. Prove the gate blocks
 

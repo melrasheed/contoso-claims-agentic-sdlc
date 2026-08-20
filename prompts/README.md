@@ -48,9 +48,9 @@ under three days. Write Given/When/Then acceptance criteria that a tester could
 verify without asking you what you meant. Include negative and edge cases, not
 just the happy path.
 
-Note the project uses the Basic process, so the available types are Epic, Issue
-and Task, and there is no acceptance criteria field - fold acceptance criteria
-into the description under a clear heading.
+Note the project uses the Agile process, so the available types are Epic,
+Feature, User Story, Bug and Task. Use the AcceptanceCriteria field
+(Microsoft.VSTS.Common.AcceptanceCriteria) for acceptance criteria.
 
 Tag an item `ai-ready` only if it has acceptance criteria and no open
 NEEDS DECISION lines.
@@ -107,21 +107,15 @@ gaps.
 
 ## Stage 4 — Implementation
 
-Implementation runs on the **GitHub Copilot coding agent**, not a local agent. Two ways to trigger it:
+Implementation runs on the **GitHub Copilot coding agent**, triggered natively from Azure Boards.
 
-**Path A — via the bridge (recommended, gives full traceability).**
+**Tag the work item `ai-ready` in Azure Boards, then:**
 
-```powershell
-# Tag the work item `ai-ready` in Azure Boards, then:
-$env:ADO_ORG='melrasheed'; $env:ADO_PROJECT='Agentic SDLC'
-$env:GH_OWNER='melrasheed'; $env:GH_REPO='contoso-claims-agentic-sdlc'
-$env:GITHUB_TOKEN=(gh auth token)
+**[PORTAL]** Azure Boards → work item → context menu → **Send to Copilot**.
 
-node tools/ado-github-bridge/dist/cli.js sync --dry-run   # preview
-node tools/ado-github-bridge/dist/cli.js sync             # for real
-```
+Copilot creates a `copilot/` branch and opens a draft pull request. The PR body contains `AB#<id>` which Azure Boards links automatically. No GitHub issue is created.
 
-**Path B — assign an existing GitHub issue to Copilot** in the GitHub UI, or from Azure Boards using the native "send to Copilot" integration where it is enabled.
+> If you need to re-engage Copilot on an existing pull request, add a comment on the PR: `@github-copilot implement this`.
 
 ---
 
@@ -169,7 +163,7 @@ else is an observation - label it as such. Say plainly if the change is clean.
 ```
 Use the devops-engineer agent.
 
-Add a stage to pipelines/azure-pipelines.yml that <requirement>.
+Add a stage to .github/workflows/cd.yml that <requirement>.
 
 Keep the existing gate structure intact. State what it costs, what the blast
 radius is, and how to roll back. Validate the YAML before you claim success,
@@ -239,7 +233,6 @@ Do not merge the fix branch.
 
 ```powershell
 npm run preflight
-node tools/ado-github-bridge/dist/cli.js doctor
 ```
 
 **Ask an agent to challenge a plan.**

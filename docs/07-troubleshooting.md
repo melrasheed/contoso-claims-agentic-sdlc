@@ -2,7 +2,7 @@
 
 All bugs below were discovered and fixed during development of this accelerator. Each entry gives the symptom, root cause, exact fix, and how to verify it is resolved.
 
-Bugs 1–10 were found while building the original implementation. Bugs 11–16 concern the GitHub Actions delivery model and the Azure Boards release gate — jump to [Delivery and release gate failures](#delivery-and-release-gate-failures) if that is what you are debugging.
+Bugs 1–10 were found while building the original implementation. Bugs 11–17 concern the GitHub Actions delivery model and the Azure Boards release gate — jump to [Delivery and release gate failures](#delivery-and-release-gate-failures) if that is what you are debugging.
 
 ---
 
@@ -107,23 +107,56 @@ Write-Host "Real process: $result"
 
 ---
 
-## Bug 4 — Basic process limitations (no Feature, no Bug, no acceptance criteria field)
+## Bug 4 — Process template: type and field availability
 
-**Symptom:** Scripted creation of `Feature`, `Bug`, `User Story`, or `Product Backlog Item` work items fails. Adding acceptance criteria, repro steps, or severity fields to work items fails.
+**Symptom:** Scripted creation of `Feature`, `Bug`, `User Story`, or `Product Backlog Item` work items fails on a Basic project. On an Agile project, severity-based release gate queries fail silently if the project was recently migrated.
 
-**Cause:** The Azure DevOps **Basic process** is minimal. Valid work item types are `Epic`, `Issue`, and `Task` only. There are no `Feature`, `User Story`, `PBI`, or `Bug` types, and no acceptance criteria, repro-steps, or severity fields. Valid states are `To Do`, `Doing`, `Done`.
+**Cause:** The Azure DevOps **Basic process** is minimal — valid types are `Epic`, `Issue`, and `Task` only, with no severity field or acceptance criteria field. The **Agile process** adds `Feature`, `User Story`, `Bug`, `Task`, the `Microsoft.VSTS.Common.Severity` field, and the `Microsoft.VSTS.Common.AcceptanceCriteria` field.
 
-**There is no public REST API to change a project's process.** Changing from Basic to Agile/Scrum/CMMI is a portal-only operation.
+This accelerator targets the **Agile process**. Changing from Basic to Agile is a portal-only operation — **there is no public REST API for it**.
 
-**Fix option A — adapt (what this codebase does):** The bootstrap script and ProcessMap.psm1 detect the process and use the correct types and fields for whatever process the project runs. On Basic, acceptance criteria fold into the Description field under a clear heading. The bridge forwards it either way.
+**Fix option A — migrate to Agile (recommended):**
 
-**Fix option B — change the process (if migration is acceptable):**
+**[PORTAL]** Organisation settings → Boards → Process → Agile → Change team projects → select the project → Change.
 
-**[PORTAL]** Organization settings → Boards → Process → select the target process (e.g. Agile) → Change team projects → select the project → Change.
+> **Verified behaviour, and it is not what the mapping table implies.** Migrating Basic → Agile switches the *process*, but **existing work items keep their original type and state**. Items created as `Issue` remain `Issue` and keep Basic states such as `To Do` and `Doing`; they are **not** converted to `User Story`.
+>
+> This matters more than it looks. Agile also has an `Issue` type, but it models an impediment and sits in **no backlog category** — confirmed by querying `_apis/wit/workitemtypecategories`, where `Microsoft.RequirementCategory` contains only `User Story`. Since the native "Send to Copilot" action requires a Requirement- or Task-category type, a migrated `Issue` **cannot be handed to Copilot**, and a severity-based gate query will never match it because `Issue` is not a `Bug`.
+>
+> The symptom is confusing: the process reports as Agile, the new types are all available, and yet the backlog behaves as though nothing changed.
 
-This is irreversible in the direction Basic → Agile/Scrum (there is a forward migration; there is no supported rollback to Basic after migration).
+**Convert existing items after migrating.** Type and state can both be set in one PATCH:
 
-**How to verify:** After bootstrap, confirm work item #1 is an `Epic` and work items #2, #3 are `Issue` type (not `Feature`). The bootstrap script output should show no errors on item creation.
+```powershell
+$tok = az account get-access-token --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv
+$h = @{ Authorization = "Bearer $tok"; 'Content-Type' = 'application/json-patch+json' }
+$ops = @(
+  @{ op='add'; path='/fields/System.WorkItemType'; value='User Story' }
+  @{ op='add'; path='/fields/System.State';        value='New' }
+) | ConvertTo-Json -Depth 5
+Invoke-RestMethod "https://dev.azure.com/<org>/_apis/wit/workitems/<id>?api-version=7.1" `
+  -Headers $h -Method PATCH -Body $ops
+```
+
+For defects, convert to `Bug` and set `Microsoft.VSTS.Common.Severity` (for example `1 - Critical`) so the release gate matches on severity rather than a tag.
+
+**Fix option B — adapt to Basic (fallback, not recommended):** The bootstrap script and `ProcessMap.psm1` detect the process and use the correct types and fields for whatever process the project runs. On Basic, the release gate falls back to a `sev1` tag rather than a severity field. This produces correct gate behaviour but loses the `Bug` type, the Severity field, and the AcceptanceCriteria field — and, critically, leaves no Requirement-category type for the native Copilot handoff.
+
+**How to verify:** confirm the process *and* the item types, because the first can be right while the second is wrong:
+
+```powershell
+# Process must report Agile
+$p = (Invoke-WebRequest "https://dev.azure.com/<org>/_apis/projects/<projectId>?includeCapabilities=true&api-version=7.1" -Headers $h).Content |
+     ConvertFrom-Json -AsHashtable
+$p.capabilities.processTemplate.templateName          # -> Agile
+
+# Requirement category must contain User Story
+$c = (Invoke-WebRequest "https://dev.azure.com/<org>/<project>/_apis/wit/workitemtypecategories?api-version=7.1" -Headers $h).Content |
+     ConvertFrom-Json -AsHashtable
+($c.value | Where-Object referenceName -eq 'Microsoft.RequirementCategory').workItemTypes.name
+```
+
+Then confirm no work item is still of type `Issue`, and that the defect used by the gate demo is a `Bug` with a Severity value.
 
 ---
 
@@ -149,55 +182,22 @@ The bootstrap script (`tools/ado-bootstrap/bootstrap.ps1`) uses `-AsHashtable` t
 
 ---
 
-## Bug 6 — GitHub issue search returns pull requests (bridge idempotency broken)
-
-**Symptom:** Running `node tools/ado-github-bridge/dist/cli.js sync` with `--dry-run` shows `already-synced` for a work item that has never been synced. On a real run, the bridge does not create the GitHub issue. The Copilot coding agent never receives the work item.
-
-**Cause:** The bridge checks idempotency by searching GitHub for an issue whose body contains a unique marker (`<!-- ADO-BRIDGE: AB#<id> -->`). The GitHub issue search API returns both issues **and pull requests** by default. When the Copilot coding agent opens a draft PR, it copies the issue body into the PR body (including the marker). The bridge's search matched the PR instead of the issue and concluded the item was already synced.
-
-**Fix:** Add `is:issue` to the search query and filter out any result with a `pull_request` field:
-
-```typescript
-// In tools/ado-github-bridge/src/github.ts
-const query = `repo:${owner}/${repo} is:issue "${marker}" in:body`;
-const results = await octokit.search.issuesAndPullRequests({ q: query });
-const issue = results.data.items.find(item => !item.pull_request);
-```
-
-The bridge already includes this fix. If you fork the bridge or write your own idempotency check, add `is:issue` to the query.
-
-**How to verify:**
-```powershell
-node tools/ado-github-bridge/dist/cli.js sync --dry-run
-```
-The output should show `skipped` for items that have a GitHub issue and show `would create` for items that have no issue. Items with only a PR (but no issue) should show `would create`.
-
----
-
 ## Bug 7 — GitHub token scope: missing `workflow`
 
-**Symptom:** The bridge or a pipeline step fails with `HttpError: Resource not accessible by integration` or `403: refusing to allow GitHub App to create/update workflow file`. Changes to `.github/workflows/` are rejected.
+**Symptom:** A pipeline step fails with `HttpError: Resource not accessible by integration` or `403: refusing to allow GitHub App to create/update workflow file`. Changes to `.github/workflows/` are rejected.
 
 **Cause:** The GitHub token does not have the `workflow` scope. The `workflow` scope is required to push to `.github/workflows/`. A token with only `repo` scope is rejected for workflow file changes.
 
-Secondary issue: the default `GITHUB_TOKEN` that Actions provides **cannot assign the Copilot coding agent**. Assigning Copilot requires a Personal Access Token.
-
 **Fix:**
 
-For the bridge (PAT):
-- Create a PAT with scopes: `repo`, `issues` (for normal operation) + `workflow` (if the bridge must touch `.github/workflows/`)
-- Set as `GITHUB_TOKEN` environment variable
-
-For assigning Copilot:
-- Create a PAT with `repo` scope
-- Set as a separate secret (e.g., `COPILOT_ASSIGN_TOKEN`) in Azure DevOps Library or GitHub Actions secrets
-- Do not store it in source
+For pipeline steps that push to `.github/workflows/`:
+- Create a PAT with scopes: `repo` + `workflow`
+- Set as the relevant secret in GitHub Actions
 
 **How to verify:**
 ```powershell
 # Check which scopes the current token has:
-curl -s -I -H "Authorization: token <your-token>" https://api.github.com | grep -i x-oauth-scopes
-# Should include: repo, issues (and workflow if needed)
+gh auth status   # scopes must include 'workflow'
 ```
 
 ---
@@ -331,11 +331,10 @@ The subject list must contain exactly what the failing run reported.
 
 **Symptom:** A known Sev1 defect is open in Azure Boards, but the `boards-gate` job reports `blocking-count=0` and the deployment proceeds.
 
-**Cause:** Almost always the **query**, not the gate. Three common variants:
+**Cause:** Almost always the **query**, not the gate. Two common variants:
 
-1. **Wrong process assumptions.** The Basic process has no `Bug` work item type and no `Microsoft.VSTS.Common.Severity` field. A query filtering on `[System.WorkItemType] = 'Bug'` returns nothing on a Basic project — and a query that returns nothing is a gate that always passes. `tools/ado-bootstrap/bootstrap.ps1` handles this by falling back to a `sev1` **tag** on Basic.
-2. **Wrong state exclusion.** Excluding `Closed` on a Basic project excludes nothing, because Basic uses `Done`.
-3. **Query path typo.** A mistyped `ADO_QUERY_PATH` raises an error rather than passing silently — but only because the gate fails closed.
+1. **Wrong state exclusion.** Agile states are `New`, `Active`, `Resolved`, `Closed`. A query excluding `Closed` but not `Resolved` may miss resolved-but-not-closed bugs. Verify the query logic matches your team's closing conventions.
+2. **Query path typo.** A mistyped `ADO_QUERY_PATH` raises an error rather than passing silently — but only because the gate fails closed.
 
 **Fix:** run the query in the Azure Boards UI first and confirm it returns the item you expect. Then confirm the gate sees the same:
 
@@ -347,7 +346,7 @@ $env:GATE_ENFORCE     = "false"     # report without failing
 node tools/delivery/boards-gate.mjs
 ```
 
-**How to verify:** with an open Sev1, the gate must exit `1` and name the item. A gate that has never been seen to block has never been tested.
+**How to verify:** with an open Sev1 bug in Active state, the gate must exit `1` and name the item. A gate that has never been seen to block has never been tested.
 
 ---
 
@@ -443,3 +442,37 @@ Note that `gh auth token` and the credential git actually uses can differ — `G
 ```powershell
 gh auth status   # scopes must include 'workflow'
 ```
+
+---
+
+## Bug 17 — Required status check never resolves: pull request stuck as "Waiting"
+
+**Symptom:** A pull request against `main` shows a required check permanently in "Waiting" state. The check is listed in the branch ruleset, but no corresponding run ever appears in the PR's checks tab. Merging is blocked. CI is running and passing, but the specific required check context never resolves.
+
+**Cause:** The required status check *context* in the branch ruleset did not match any job id reported by the CI workflow. GitHub's behaviour in this case is silent: it lists the check as required and waits indefinitely, producing no error and no warning. The branch still appears protected, but the check has effectively never been evaluated.
+
+This is a configuration gap, not a bug in the workflow itself. The most common trigger is renaming a CI job without updating the ruleset, or copying a ruleset from another repository where the job had a different name.
+
+In this repository the problem occurred because the CI job's display name was `"Lint, typecheck, test, build"` while the ruleset required the context `build-and-test`. They never matched. The fix was to give the job the stable id `build-and-test` in `ci.yml` and to update the ruleset.
+
+The secondary consequence is significant: **a required context that matches nothing silently enforces nothing while the branch still appears protected**. The branch protection dashboard shows a green tick; in practice any PR could merge without tests passing.
+
+**Fix:**
+
+1. Check what contexts the ruleset currently requires:
+   ```powershell
+   gh api repos/<owner>/<repo>/rules/branches/main `
+     --jq '.[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context'
+   ```
+
+2. Check what job ids the CI workflow actually reports on a recent run:
+   ```powershell
+   gh run list --workflow=ci.yml --limit=1 --json databaseId --jq '.[0].databaseId' | `
+     ForEach-Object { gh run view $_ --json jobs --jq '.jobs[].name' }
+   ```
+
+3. The two lists must match exactly. Update the ruleset to use the job id (`build-and-test`), not the display name.
+
+4. If you use `tools/configure-branch-protection.ps1`, it validates this automatically: it reads job names from `.github/workflows/` and refuses to apply a ruleset containing a context that matches no job. The `-SkipCheckNameVerification` flag bypasses this only for genuinely external checks (such as CodeQL or third-party scanners).
+
+**How to verify:** Open a pull request and confirm the `build-and-test` check appears and resolves (green or red) within a few minutes of a push. "Waiting" means the context still does not match.

@@ -19,6 +19,8 @@ Get the Agentic SDLC Accelerator running against your own Azure DevOps organisat
 | GitHub Copilot | Copilot Business or Enterprise licence on the org |
 | GitHub CLI | 2.40+ (`gh --version`), authenticated with `gh auth login` |
 
+> **Process prerequisite.** This guide assumes the Azure DevOps project runs the **Agile** process (`Epic`, `Feature`, `User Story`, `Bug`, `Task`; states `New`, `Active`, `Resolved`, `Closed`). Switching an existing project from Basic to Agile is a portal-only operation — there is no public REST API for it. **[PORTAL]** Organisation settings → Boards → Process → Agile → Change team projects → select the project → Change. This is irreversible; test in a throwaway project first. The bootstrap script detects the process automatically.
+
 > **Delivery runs on GitHub Actions.** Azure DevOps is used for planning only. You will not create a service connection, a variable group or an Azure Pipeline anywhere in this guide. See `docs/09-why-this-split.md` for the reasoning.
 
 **Verify Node and npm:**
@@ -76,7 +78,7 @@ Preview what it would create without making changes:
 **Success looks like:**
 ```
 === Resolving process template ===
-  = Process template: Basic
+  = Process template: Agile
 === Creating area paths ===
   + areas/Contoso Claims
   + areas/Platform
@@ -148,52 +150,19 @@ This creates an Entra ID application, federates it to the `dev` and `prod` GitHu
 
 ---
 
-## Step 6 — Configure the bridge
+## Step 6 — Connect Azure Boards to GitHub
 
-Set environment variables for the ADO–GitHub bridge:
+This connection is what enables the native Copilot handoff from Boards.
 
-```powershell
-$env:ADO_ORG       = "<your-ado-org>"
-$env:ADO_PROJECT   = "Agentic SDLC"
-$env:GH_OWNER      = "<your-github-org-or-user>"
-$env:GH_REPO       = "contoso-claims-agentic-sdlc"
-$env:GITHUB_TOKEN  = "<your-github-pat>"   # needs repo + issues scope
-```
+**[PORTAL]** In Azure DevOps → Project settings → GitHub connections → Add connection → select `melrasheed/contoso-claims-agentic-sdlc` and authorise. The connection id is displayed after authorisation; note it for reference.
 
-Verify connectivity:
-```powershell
-npx --prefix tools/ado-github-bridge ts-node -e "
-  const {loadConfig} = require('./src/config.js');
-  console.log(loadConfig());
-" 
-# or run the compiled binary:
-node tools/ado-github-bridge/dist/cli.js doctor
-```
+Once the connection exists, any work item in Boards gains a **Send to Copilot** action (work item context menu). When a human invokes it, Copilot creates a `copilot/` branch and opens a draft pull request. No GitHub issue is created; the PR links back to the work item via the `AB#<id>` token.
+
+> **No automation watches the `ai-ready` tag.** The tag is a human triage signal — it means "refined and ready to hand to Copilot". A human applies it and then makes a deliberate decision to invoke Copilot from Boards. That decision is not automated.
 
 ---
 
-## Step 7 — Run a sync
-
-```powershell
-node tools/ado-github-bridge/dist/cli.js sync --dry-run
-```
-
-Review what would be created, then run for real:
-```powershell
-node tools/ado-github-bridge/dist/cli.js sync
-```
-
-**Success looks like:**
-```
-Bridging contoso/Agentic SDLC -> contoso/contoso-claims-agentic-sdlc
---- Summary ---
-  + AB#2 Add dual-approval for high-value claims -> #2 [copilot]
-created=1 already-synced=0 skipped=0 failed=0
-```
-
----
-
-## Step 8 — Watch the release gate work
+## Step 7 — Watch the release gate work
 
 This is the control that keeps Azure Boards authoritative over releases even though delivery runs on GitHub Actions.
 
@@ -202,15 +171,15 @@ gh workflow run cd.yml -f gate-only=true
 gh run watch
 ```
 
-The sample backlog includes an open Sev1 defect, so the first run **fails on purpose**:
+The sample backlog includes an open Sev1 bug, so the first run **fails on purpose**:
 
 ```
 ### Azure Boards release gate — BLOCKED
 
 Blocking work items: 1 (tolerance 0)
 
-| ID | Type  | Title                                                    | State |
-| 4  | Issue | Adjudicating an already-paid claim returns 200 not 409   | To Do |
+| ID | Type | Title                                                    | State  |
+| 4  | Bug  | Adjudicating an already-paid claim returns 200 not 409   | Active |
 ```
 
 Close work item #4 in Azure Boards and re-run. The gate passes and the deployment proceeds.

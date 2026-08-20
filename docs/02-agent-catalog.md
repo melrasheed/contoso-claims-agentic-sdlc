@@ -52,7 +52,7 @@ what the next action is.
 - Works in Azure Boards only — does not modify source files.
 - Applies the INVEST test to every item.
 - Never invents business rules — uses `NEEDS DECISION:` for unknowns.
-- Tags items `ai-ready` only when all gates are met (acceptance criteria, no open decisions, parent link exists).
+- Tags items `ai-ready` only when all gates are met (acceptance criteria, no open decisions, parent link exists). The tag is a human triage signal — it indicates the item is ready to hand to Copilot. A human then makes the deliberate decision to invoke Copilot from Azure Boards.
 
 **Example prompt:**
 ```
@@ -270,15 +270,15 @@ These are not authored agent files but configured platform features.
 
 ### GitHub Copilot coding agent
 
-**Purpose:** Implements GitHub issues as draft pull requests.
+**Purpose:** Implements work items as draft pull requests.
 
-**Where it runs:** GitHub cloud (github.com). Triggered by issue assignment.
+**Where it runs:** GitHub cloud (github.com). Triggered from Azure Boards using the native GitHub connection.
 
-**How it is engaged:** The ADO–GitHub bridge assigns the Copilot coding agent to each issue it creates. You can also assign it manually on any issue.
+**How it is engaged:** A human opens a work item in Azure Boards and uses the **Send to Copilot** action (available once the GitHub connection is configured in Project settings). Copilot creates a `copilot/` branch and a draft pull request linked back to the work item via `AB#<id>`. You can also assign Copilot directly on any pull request in the GitHub UI.
 
-**Inputs:** The GitHub issue body, which the bridge populates with the work item title, description, acceptance criteria, area path, iteration, tags, and a link back to Azure Boards.
+**Inputs:** The work item title, description, and acceptance criteria from Azure Boards. No GitHub issue is created; the PR body carries the context.
 
-**Outputs:** A draft PR on a branch named `copilot/issue-<N>-<slug>`.
+**Outputs:** A draft PR on a branch named `copilot/<workitem-slug>`.
 
 **Guardrails (platform-level, non-configurable):**
 - Cannot approve its own pull request.

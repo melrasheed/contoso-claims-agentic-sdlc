@@ -36,13 +36,13 @@ Eleven agents span the lifecycle: requirements refinement, architecture decision
 
 This is not a slideware concept. The following was executed against live systems:
 
-- A work item created in Azure Boards (`Agentic SDLC` project) was automatically converted into a GitHub issue with full context, assigned to the GitHub Copilot coding agent, which opened a draft pull request on branch `copilot/issue-2-require-dual-approval`.
-- The Azure Boards work item was updated automatically with a hyperlink to the issue, provenance tags (`ai-implementing`, `synced-to-github`), a state transition, and an audit comment.
+- A work item created in Azure Boards (`Agentic SDLC` project) was sent to the GitHub Copilot coding agent natively from Boards using the Azure Boards → GitHub connection, which opened a draft pull request on branch `copilot/issue-2-require-dual-approval`.
+- The Azure Boards work item carries a development link to the pull request, and the PR body contains `AB#2` for automatic traceability.
 - Delivery runs entirely on GitHub Actions using OIDC federation — **no service connection, no stored client secret, no publish profile**.
 - Infrastructure (App Service, Application Insights, Azure Monitor alerts, Azure SRE Agent) validated and deployed to a real Azure subscription.
 - The reference application ships with 182 passing tests.
 
-Along the way the build surfaced **sixteen genuine integration defects** — including a broken Azure DevOps MCP endpoint, an Azure DevOps API that reports the wrong process template, an idempotency bug caused by GitHub's search API returning pull requests where issues were expected, and a high-severity shell-escaping vulnerability that CodeQL caught in the project's own tooling and blocked at the pull request. Each is documented with symptom, cause, fix and verification. That troubleshooting guide is, for many customers, more immediately valuable than the demo itself, because it is the friction they will hit in week one.
+Along the way the build surfaced **seventeen genuine integration defects** — including a broken Azure DevOps MCP endpoint, an Azure DevOps API that reports the wrong process template, a high-severity shell-escaping vulnerability that CodeQL caught in the project's own tooling and blocked at the pull request, and a required status check context mismatch that silently enforced nothing while the branch appeared protected. Each is documented with symptom, cause, fix and verification. That troubleshooting guide is, for many customers, more immediately valuable than the demo itself, because it is the friction they will hit in week one.
 
 ### The governance proved itself
 
@@ -151,15 +151,15 @@ Not modelled, because they are real but hard to defend numerically: reduced onbo
 |---|---|---|
 | **Throughput rises, quality falls** | The most likely failure mode. More PRs, same review capacity, defects leak | Gates are unchanged by AI; change failure rate is a tracked metric from day one; AI review is advisory and never a required approver |
 | **Review becomes rubber-stamping** | Reviewers cannot keep up and start approving on trust | PR template forces Risk, Rollback and Test evidence; author must confirm they can explain every line; CODEOWNERS forces domain experts onto high-blast-radius paths |
-| **Loss of auditability** | "Who authorised this change?" has no answer | Every change carries `AB#<id>` to a work item; AI authorship is recorded explicitly; the bridge writes provenance back to Boards |
+| **Loss of auditability** | "Who authorised this change?" has no answer | Every change carries `AB#<id>` to a work item; AI authorship is recorded explicitly; the Boards native connection writes provenance back to the work item |
 | **Skills atrophy** | Juniors never learn to design or debug | Agents produce artefacts humans review — ADRs, threat models, test plans — rather than opaque output; the orchestrator refuses to skip stages |
 | **Autonomous agent does something destructive** | Genuine risk with the SRE Agent | Default is Review mode; per-tool `Allow`/`Ask`; Parameter Policy locks resource targets; agent scoped to one resource group. **Documented caveat: in Autonomous mode, tools marked `Ask` execute without approval** |
-| **Preview-feature dependency** | Some capabilities are preview and will change | Every integration point is labelled with its status and has a documented fallback; the bridge exists precisely so the demo survives a tenant without the native integration |
-| **Vendor lock-in** | Fair challenge | The lifecycle pattern and agent definitions are portable; the bridge is 600 lines of TypeScript against public REST APIs |
+| **Preview-feature dependency** | Some capabilities are preview and will change | Every integration point is labelled with its status and has a documented fallback |
+| **Vendor lock-in** | Fair challenge | The lifecycle pattern and agent definitions are portable |
 
 ## 7. Adoption roadmap
 
-**Phase 1 — Prove it (weeks 1–4).** One team, one repository. Measure the baseline *before* enabling anything: lead time, PR cycle time, change failure rate, escaped defects. Deploy the accelerator, establish `copilot-instructions.md`, PR template and the AI usage norms. Success criterion: one work item travels Boards → issue → Copilot PR → gated release, and the team can explain every step.
+**Phase 1 — Prove it (weeks 1–4).** One team, one repository. Measure the baseline *before* enabling anything: lead time, PR cycle time, change failure rate, escaped defects. Deploy the accelerator, establish `copilot-instructions.md`, PR template and the AI usage norms. Configure the Azure Boards → GitHub connection. Success criterion: one work item travels Boards → Copilot PR → gated release, and the team can explain every step.
 
 **Phase 2 — Expand (weeks 5–12).** Three to four teams. Add Copilot code review and the Azure SRE Agent in Review mode. Weekly prompt-sharing session; publish a shared agent library in a central repository. Success criterion: throughput up with change failure rate flat or down. If change failure rate rises, stop and fix the gates before adding teams.
 
@@ -193,7 +193,6 @@ The accelerator makes that pilot cheap: the starter kit, tutorial and troublesho
 | Working reference application | Contoso Claims API + UI, 182 tests |
 | 11-agent fleet definitions | Portable across repositories and customers |
 | Process-aware Azure DevOps bootstrap | Works on Basic, Agile, Scrum and CMMI |
-| Azure Boards ↔ GitHub bridge | Traceability and provenance, with a native-integration fallback |
 | **Azure Boards release gate** | Restores the Azure Pipelines "Query Work Items" control in GitHub Actions, where no equivalent exists |
 | **Boards deployment write-back** | Keeps Azure Boards a complete record of what actually shipped |
 | GitHub Actions CI/CD | Build, scan, deploy, gate, approve, canary swap, auto-rollback, release |
@@ -202,5 +201,5 @@ The accelerator makes that pilot cheap: the starter kit, tutorial and troublesho
 | Preflight readiness doctor | Detects broken integrations before they derail a demo |
 | Tutorial, security model, SRE runbook | Step-by-step adoption |
 | Architecture rationale | Why planning and delivery are separated, and what it costs |
-| Troubleshooting guide | Sixteen real defects with symptom, cause, fix, verification |
+| Troubleshooting guide | Seventeen real defects with symptom, cause, fix, verification |
 | Starter kit with `init` configurator | Adopt in minutes, then modify |

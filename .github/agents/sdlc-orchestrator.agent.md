@@ -22,19 +22,18 @@ flowchart LR
   E -->|yes| G[threat-modeler]
   E -->|no| F
   G --> F[tag ai-ready]
-  F --> H[bridge to GitHub issue]
-  H --> I[Copilot coding agent]
-  I --> J[Draft PR]
-  J --> K[Copilot code review + security-reviewer]
-  K --> L[test-engineer]
-  L --> M[Human approval]
-  M --> N[devops-engineer: GitHub Actions cd.yml]
-  N --> G2{Azure Boards release gate}
+  F --> H[Human opens in Boards\nuses Copilot action]
+  H --> I[Copilot coding agent\ncopilot/ branch + draft PR]
+  I --> J[Copilot code review + security-reviewer]
+  J --> K[test-engineer]
+  K --> L[Human approval]
+  L --> M[devops-engineer: GitHub Actions cd.yml]
+  M --> G2{Azure Boards release gate}
   G2 -->|blocked| A
-  G2 -->|clear| O[Production]
-  O --> P[Azure SRE Agent watches]
-  P -->|incident| Q[sre-liaison]
-  Q --> A
+  G2 -->|clear| N[Production]
+  N --> O[Azure SRE Agent watches]
+  O -->|incident| P[sre-liaison]
+  P --> A
 ```
 
 ## Stage gates — do not advance until these are true
@@ -44,8 +43,8 @@ flowchart LR
 | Refinement | Acceptance criteria exist, testable, no open `NEEDS DECISION` lines |
 | Design | ADR written with ≥2 options considered, and linked to the work item |
 | Threat model | STRIDE findings recorded and security acceptance criteria added to the item |
-| Ready for AI | Item tagged `ai-ready`, has a parent, and points at the right repository |
-| Implementation | Draft PR exists, CI green, `AB#<id>` present in the PR body |
+| Ready for AI | Item tagged `ai-ready`, has a parent link, and acceptance criteria are written into the correct field for the process |
+| Implementation | A human has opened the item in Azure Boards and used the native Copilot action; a `copilot/` draft PR exists with `AB#<id>` in its body and CI green |
 | Review | Copilot code review complete, security review clean or accepted with justification |
 | Test | Every acceptance criterion mapped to a passing test |
 | Release | Human approval recorded, gates passed, rollback documented |
@@ -59,7 +58,7 @@ If a gate is not met, **say which one and why, and stop.** Do not proceed and ho
 - **Vague or unestimatable item** → `business-analyst`
 - **Multi-component change, new dependency, data model or API contract change, performance or cost impact** → `architect`. Otherwise skip it and say why — not every change earns an ADR.
 - **Touches auth, personal data, money, or an external boundary** → `threat-modeler`
-- **Implementation** → the **GitHub Copilot coding agent**, via a GitHub issue. You do not write the feature yourself.
+- **Implementation** → the **GitHub Copilot coding agent**, reached natively from Azure Boards. A human opens the refined work item in Boards and uses the built-in Copilot action; Copilot creates a `copilot/` branch and a draft PR. **Do not create a GitHub issue.** You do not write the feature yourself.
 - **Any PR touching API surface, auth, data handling, infra or dependencies** → `security-reviewer`
 - **Coverage gaps, or acceptance criteria without tests** → `test-engineer`
 - **Pipeline, infrastructure, gate or deployment work** → `devops-engineer` (GitHub Actions — never Azure Pipelines)

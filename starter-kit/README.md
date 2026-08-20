@@ -36,8 +36,7 @@ starter-kit/
 │   ├── deploy.ps1                   Deploy script
 │   └── teardown.ps1                 Teardown script
 └── tools/
-    ├── ado-bootstrap/               ADO bootstrap script and process map
-    └── ado-github-bridge/           Bridge configuration reference
+    └── ado-bootstrap/               ADO bootstrap script and process map
 ```
 
 > **Delivery runs on GitHub Actions.** Azure DevOps is used for planning only. There is no `azure-pipelines.yml`, no service connection and no variable group in this kit. See [`.github/WORKFLOWS.md`](.github/WORKFLOWS.md).
@@ -50,17 +49,17 @@ The files in this kit contain `<PLACEHOLDER>` markers where customer-specific va
 
 | Placeholder | Meaning | Files affected |
 |---|---|---|
-| `<ADO_ORG>` | Azure DevOps organisation name | `copilot-instructions.md`, pipeline YAML, bridge config |
-| `<ADO_PROJECT>` | Azure DevOps project name | `copilot-instructions.md`, pipeline YAML, bridge config |
-| `<GH_OWNER>` | GitHub organisation or user | `copilot-instructions.md`, pipeline YAML, CODEOWNERS |
-| `<GH_REPO>` | GitHub repository name | `copilot-instructions.md`, pipeline YAML, CODEOWNERS |
+| `<ADO_ORG>` | Azure DevOps organisation name | `copilot-instructions.md`, pipeline YAML |
+| `<ADO_PROJECT>` | Azure DevOps project name | `copilot-instructions.md`, `cd.yml` |
+| `<GH_OWNER>` | GitHub organisation or user | `copilot-instructions.md`, `cd.yml`, CODEOWNERS |
+| `<GH_REPO>` | GitHub repository name | `copilot-instructions.md`, `cd.yml`, CODEOWNERS |
 | `<APP_NAME>` | Customer application name | `copilot-instructions.md`, agent files |
 | `<APP_DESCRIPTION>` | One-sentence description of the application | `copilot-instructions.md` |
 | `<DOMAIN_CONTEXT>` | Domain-specific guidance for agents (e.g., claim data, PII rules) | `copilot-instructions.md`, `threat-modeler.agent.md` |
-| `<NAME_PREFIX>` | Short Azure resource prefix | `main.parameters.json`, pipeline YAML |
+| `<NAME_PREFIX>` | Short Azure resource prefix | `main.parameters.json`, `cd.yml` |
 | `<AZURE_LOCATION>` | Azure region | `main.parameters.json` |
-| `<SUBSCRIPTION_ID>` | Azure subscription ID | pipeline YAML variable group |
-| `<TENANT_ID>` | Azure tenant ID | pipeline YAML variable group |
+| `<SUBSCRIPTION_ID>` | Azure subscription ID | GitHub repository variable `AZURE_SUBSCRIPTION_ID` |
+| `<TENANT_ID>` | Azure tenant ID | GitHub repository variable `AZURE_TENANT_ID` |
 | `<CODEOWNERS_TEAM>` | GitHub team or user for CODEOWNERS | `CODEOWNERS` |
 | `<ALERT_EMAIL>` | Ops team email for Azure Monitor alerts | `main.parameters.json` |
 

@@ -92,6 +92,8 @@ The gate fails closed, so an Azure DevOps outage blocks releases. With a single-
 
 "Where is the work item?" and "where is the deployment?" have different answers. Mitigated by `AB#` linking in both directions, but it is a real cognitive cost for someone new.
 
+The bridge between Azure Boards and GitHub was a sixth cost item in an earlier version of this design. It has since been replaced by the native Azure Boards to GitHub connection, which removed a maintained TypeScript component, a separate credential, and two additional failure modes. The seam is now a thin, deliberate human click rather than a synchronised copy.
+
 ---
 
 ## When you should *not* use this split
@@ -113,8 +115,6 @@ Be willing to talk a customer out of it:
 | **All GitHub** (Issues, Projects, Actions) | Greenfield, lighter planning, small to mid-size teams | Weaker portfolio planning and test management |
 | **All Azure DevOps** (Boards, Repos, Pipelines) | Deep ADO investment, no appetite to move code | No Copilot coding agent — it requires a GitHub repository |
 | **Boards + Pipelines, code in GitHub** | Want Copilot agents but must keep Pipelines | Delivery evidence split across two systems; two identity models |
-
-The fourth row is what this accelerator originally built, and why it was changed.
 
 ---
 
