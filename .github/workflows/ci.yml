@@ -17,7 +17,14 @@ concurrency:
 
 jobs:
   ci:
-    name: Lint, typecheck, test, build
+    # This name is the required status check *context* in the branch ruleset.
+    # It is deliberately a short, stable identifier rather than a prose
+    # description: the ruleset matches on this exact string, and a mismatch
+    # means the check is listed as required but never reported, so the branch
+    # looks protected while enforcing nothing. Change this and you must update
+    # the ruleset in the same commit - tools/configure-branch-protection.ps1
+    # verifies the two agree.
+    name: build-and-test
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

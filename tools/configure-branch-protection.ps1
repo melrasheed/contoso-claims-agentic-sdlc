@@ -40,6 +40,14 @@
 .PARAMETER RequireCodeOwnerReview
     Require review from CODEOWNERS. Recommended.
 
+.PARAMETER SkipCheckNameVerification
+    Skip the safety check that every required status check context matches a
+    job name declared in .github/workflows/. Only use this when a required
+    check genuinely comes from outside this repository, such as a third-party
+    app. A context that matches nothing makes GitHub wait forever for a check
+    that is never reported, which leaves the branch unprotected while looking
+    protected.
+
 .EXAMPLE
     ./configure-branch-protection.ps1 -Repository melrasheed/contoso-claims-agentic-sdlc
 
@@ -53,6 +61,7 @@ param(
     [ValidateRange(0, 6)][int]$RequiredApprovals = 1,
     [string[]]$RequiredChecks = @('build-and-test'),
     [switch]$RequireCodeOwnerReview,
+    [switch]$SkipCheckNameVerification,
     [string]$RulesetName = 'Agentic SDLC - protected branch'
 )
 
@@ -90,6 +99,55 @@ try {
     if ($repo.visibility -eq 'private' -and $repo.owner.type -eq 'User') {
         Write-Warn "Branch rulesets on private personal repositories require GitHub Pro or an organisation."
         Write-Warn "If this call fails with 403, that limitation is the reason."
+    }
+
+    # --- Verify the required check contract --------------------------------
+    # A required status check whose context matches no job name is the worst
+    # possible failure mode: GitHub waits forever for a check that will never
+    # be reported, so pull requests hang AND the branch is not actually
+    # enforcing anything while appearing protected. This shipped once already.
+    # Fail loudly rather than let it recur.
+    if ($RequiredChecks.Count -gt 0 -and -not $SkipCheckNameVerification) {
+        Write-Host "`n=== Verifying required check names ===" -ForegroundColor Cyan
+
+        $workflowDir = Join-Path (Split-Path $PSScriptRoot -Parent) '.github/workflows'
+        $declaredNames = @()
+
+        if (Test-Path $workflowDir) {
+            foreach ($wf in Get-ChildItem $workflowDir -Filter '*.yml' -ErrorAction SilentlyContinue) {
+                foreach ($line in Get-Content $wf.FullName) {
+                    # Job-level `name:` is indented four spaces under `jobs:`;
+                    # step names are deeper and workflow name is column zero.
+                    if ($line -match '^\s{4}name:\s*(.+?)\s*$') {
+                        $declaredNames += $Matches[1].Trim(('"', "'"))
+                    }
+                }
+            }
+        }
+
+        if ($declaredNames.Count -eq 0) {
+            Write-Warn "Could not read any job names from $workflowDir; skipping verification."
+        }
+        else {
+            $unmatched = @($RequiredChecks | Where-Object { $declaredNames -notcontains $_ })
+            foreach ($ok in ($RequiredChecks | Where-Object { $declaredNames -contains $_ })) {
+                Write-Ok "required check '$ok' matches a workflow job name"
+            }
+
+            if ($unmatched.Count -gt 0) {
+                Write-Host ''
+                foreach ($bad in $unmatched) {
+                    Write-Host "  ! required check '$bad' matches NO job name in .github/workflows/" -ForegroundColor Red
+                }
+                Write-Host "`n  Job names found:" -ForegroundColor Yellow
+                foreach ($n in ($declaredNames | Sort-Object -Unique)) { Write-Host "    - $n" }
+                Write-Host ''
+                throw ("Refusing to apply a ruleset with $($unmatched.Count) unmatchable required check(s). " +
+                       'GitHub would wait forever for a check that is never reported, leaving the branch ' +
+                       'unprotected while appearing protected. Fix the name, or pass ' +
+                       '-SkipCheckNameVerification if the check genuinely comes from outside this repository.')
+            }
+        }
     }
 
     # --- Build the ruleset -------------------------------------------------
