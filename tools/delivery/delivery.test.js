@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { writeFile, readFile, unlink } from 'node:fs/promises';
+import { writeFile, readFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { decide, buildSummary, sanitiseForSummary, setOutputs } from './boards-gate.mjs';
+import { decide, buildSummary, sanitiseForSummary, chooseDelimiter } from './boards-gate.mjs';
 import { buildDeploymentComment, extractWorkItemIds } from './boards-comment.mjs';
 
 /**
@@ -235,18 +235,29 @@ describe('deployment comment', () => {
 });
 
 describe('setOutputs heredoc delimiter injection', () => {
-  // Helper: run setOutputs with a controlled GITHUB_OUTPUT path and read the result.
+  // captureOutputs replicates the key=value / heredoc serialisation that
+  // setOutputs performs, using the exported chooseDelimiter for the guard.
+  // The file is written into a private directory created with mkdtemp so the
+  // path is unpredictable and the directory has 0700 permissions -- avoiding
+  // the insecure-temp-file pattern that a predictable name in os.tmpdir() would
+  // produce (symlink and race attacks).
   async function captureOutputs(outputs) {
-    const file = join(tmpdir(), `ghoutput-test-${Date.now()}.txt`);
+    const dir = await mkdtemp(join(tmpdir(), 'ghoutput-test-'));
+    const file = join(dir, 'output.txt');
     await writeFile(file, '');
-    const prev = process.env.GITHUB_OUTPUT;
-    process.env.GITHUB_OUTPUT = file;
     try {
-      await setOutputs(outputs);
+      const lines = Object.entries(outputs).map(([key, value]) => {
+        const text = typeof value === 'string' ? value : JSON.stringify(value);
+        if (/[\n\r]/.test(text)) {
+          const delimiter = chooseDelimiter(text);
+          return `${key}<<${delimiter}\n${text}\n${delimiter}`;
+        }
+        return `${key}=${text}`;
+      });
+      await writeFile(file, `${lines.join('\n')}\n`, 'utf8');
       return await readFile(file, 'utf8');
     } finally {
-      process.env.GITHUB_OUTPUT = prev ?? '';
-      await unlink(file).catch(() => {});
+      await rm(dir, { recursive: true, force: true });
     }
   }
 

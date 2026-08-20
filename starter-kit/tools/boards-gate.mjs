@@ -349,19 +349,31 @@ async function writeGithubFile(envVar, content) {
   await appendFile(target, `${content}\n`, 'utf8');
 }
 
-export async function setOutputs(outputs) {
+/**
+ * Pick a heredoc delimiter that does not appear as a standalone line in `text`.
+ * We split on both \n and \r so that a lone carriage-return cannot smuggle a
+ * line that looks like the delimiter to a parser that treats \r as a line break.
+ */
+export function chooseDelimiter(text) {
+  let delimiter;
+  do {
+    delimiter = `ghadelim_${Math.random().toString(36).slice(2)}`;
+  } while (text.split(/\r?\n|\r/).some((line) => line.trim() === delimiter));
+  return delimiter;
+}
+
+async function setOutputs(outputs) {
   const target = process.env.GITHUB_OUTPUT;
   if (!target) return;
   const lines = Object.entries(outputs).map(([key, value]) => {
     const text = typeof value === 'string' ? value : JSON.stringify(value);
-    if (text.includes('\n')) {
+    // Use heredoc syntax when the text contains any kind of newline (\n or \r).
+    // A lone \r is treated as a line break by many parsers so it must be covered.
+    if (/[\n\r]/.test(text)) {
       // Pick a random delimiter and verify none of the content lines match it —
       // a crafted work item title containing the delimiter string could otherwise
       // break out of the heredoc block and inject arbitrary workflow outputs.
-      let delimiter;
-      do {
-        delimiter = `ghadelim_${Math.random().toString(36).slice(2)}`;
-      } while (text.split('\n').some((line) => line.trim() === delimiter));
+      const delimiter = chooseDelimiter(text);
       return `${key}<<${delimiter}\n${text}\n${delimiter}`;
     }
     return `${key}=${text}`;
