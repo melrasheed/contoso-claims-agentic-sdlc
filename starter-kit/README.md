@@ -25,11 +25,9 @@ starter-kit/
 │   │   ├── release-manager.agent.md
 │   │   └── sre-liaison.agent.md
 │   ├── copilot-instructions.md      Repository grounding context (template)
+│   ├── WORKFLOWS.md                 GitHub Actions delivery setup — read this
 │   ├── PULL_REQUEST_TEMPLATE.md     PR template (ready to use)
 │   └── CODEOWNERS                   CODEOWNERS template
-├── pipelines/
-│   ├── azure-pipelines.yml          Main multi-stage pipeline (template)
-│   └── templates/                   Stage templates
 ├── infra/
 │   ├── main.bicep                   Infrastructure (template)
 │   ├── modules/                     Bicep modules
@@ -41,6 +39,8 @@ starter-kit/
     ├── ado-bootstrap/               ADO bootstrap script and process map
     └── ado-github-bridge/           Bridge configuration reference
 ```
+
+> **Delivery runs on GitHub Actions.** Azure DevOps is used for planning only. There is no `azure-pipelines.yml`, no service connection and no variable group in this kit. See [`.github/WORKFLOWS.md`](.github/WORKFLOWS.md).
 
 ---
 

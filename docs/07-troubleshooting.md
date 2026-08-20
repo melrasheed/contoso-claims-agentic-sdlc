@@ -1,6 +1,8 @@
 # 07 — Troubleshooting
 
-All ten bugs below were discovered and fixed during development of this accelerator. Each entry gives the symptom, root cause, exact fix, and how to verify it is resolved.
+All bugs below were discovered and fixed during development of this accelerator. Each entry gives the symptom, root cause, exact fix, and how to verify it is resolved.
+
+Bugs 1–10 were found while building the original implementation. Bugs 11–16 concern the GitHub Actions delivery model and the Azure Boards release gate — jump to [Delivery and release gate failures](#delivery-and-release-gate-failures) if that is what you are debugging.
 
 ---
 
@@ -14,17 +16,15 @@ The correct MCP host is `https://mcp.dev.azure.com/<org>`. That URL returns `401
 
 **Fix:**
 
-In `~/.copilot/mcp-config.json`:
+In `~/.copilot/mcp-config.json` — the remote server speaks streamable HTTP, so it is configured as a `type: "http"` entry, not a `stdio` command:
 
 ```json
 {
   "mcpServers": {
     "azure-devops": {
-      "command": "npx",
-      "args": ["-y", "@azure-devops/mcp-server"],
-      "env": {
-        "AZURE_DEVOPS_ORG_URL": "https://mcp.dev.azure.com/<your-ado-org>"
-      }
+      "type": "http",
+      "url": "https://mcp.dev.azure.com/<your-ado-org>",
+      "tools": ["*"]
     }
   }
 }
@@ -257,7 +257,7 @@ az deployment group validate `
 
 ## Bug 10 — App Service slots require Standard tier
 
-**Symptom:** Bicep deployment fails with `The selected pricing tier does not support deployment slots`. The pipeline's DeployProd stage fails at the slot creation step.
+**Symptom:** Bicep deployment fails with `The selected pricing tier does not support deployment slots`. The `deploy-prod` job fails at the slot deployment step.
 
 **Cause:** Azure App Service deployment slots are only available on Standard tier (S1) or above. The Basic tier (B1) does not support slots. If `enableSlots=true` is set with `sku=B1`, Azure rejects slot creation.
 
@@ -272,4 +272,174 @@ For dev environments where cost matters and slot-based canary is not required, u
 
 .\infra\deploy.ps1 -EnvironmentName dev -NamePrefix <prefix> -WhatIf
 # Output should show plan SKU as B1 (slots disabled)
+```
+
+---
+
+# Delivery and release gate failures
+
+These concern the GitHub Actions delivery model. Delivery does **not** run on Azure Pipelines — see [`09-why-this-split.md`](09-why-this-split.md).
+
+---
+
+## Bug 11 — `azure/login` fails with AADSTS70021
+
+**Symptom:**
+
+```
+AADSTS70021: No matching federated identity record found for presented assertion.
+Assertion Issuer: 'https://token.actions.githubusercontent.com'.
+Assertion Subject: 'repo:owner/repo:ref:refs/heads/main'.
+```
+
+**Cause:** OIDC federated credentials match on an exact **subject**. `tools/configure-github-oidc.ps1` creates environment-scoped subjects:
+
+```
+repo:owner/repo:environment:dev
+repo:owner/repo:environment:prod
+```
+
+If the job does not declare `environment:`, GitHub presents `...:ref:refs/heads/main` instead, which matches nothing. Note the assertion subject in the error message tells you exactly what was presented — read it rather than guessing.
+
+This is a **feature, not an obstacle**: it is what makes the environment approval enforceable by the identity system rather than only by workflow YAML.
+
+**Fix:** either add the environment to the job:
+
+```yaml
+jobs:
+  deploy-dev:
+    environment:
+      name: dev          # must match the federated credential subject
+```
+
+or, for a job that legitimately runs outside an environment (such as the release gate), add a branch-scoped credential:
+
+```powershell
+.\tools\configure-github-oidc.ps1 -Repository owner/repo `
+    -SubscriptionId <id> -ResourceGroup <rg> -IncludeBranchCredential
+```
+
+**How to verify:**
+```powershell
+az ad app federated-credential list --id <app-id> --query "[].{name:name, subject:subject}" -o table
+```
+The subject list must contain exactly what the failing run reported.
+
+---
+
+## Bug 12 — Release gate passes when it should block
+
+**Symptom:** A known Sev1 defect is open in Azure Boards, but the `boards-gate` job reports `blocking-count=0` and the deployment proceeds.
+
+**Cause:** Almost always the **query**, not the gate. Three common variants:
+
+1. **Wrong process assumptions.** The Basic process has no `Bug` work item type and no `Microsoft.VSTS.Common.Severity` field. A query filtering on `[System.WorkItemType] = 'Bug'` returns nothing on a Basic project — and a query that returns nothing is a gate that always passes. `tools/ado-bootstrap/bootstrap.ps1` handles this by falling back to a `sev1` **tag** on Basic.
+2. **Wrong state exclusion.** Excluding `Closed` on a Basic project excludes nothing, because Basic uses `Done`.
+3. **Query path typo.** A mistyped `ADO_QUERY_PATH` raises an error rather than passing silently — but only because the gate fails closed.
+
+**Fix:** run the query in the Azure Boards UI first and confirm it returns the item you expect. Then confirm the gate sees the same:
+
+```powershell
+$env:ADO_ORGANIZATION = "<org>"
+$env:ADO_PROJECT      = "<project>"
+$env:ADO_QUERY_PATH   = "Shared Queries/Release Gate - active Sev1 Sev2 bugs"
+$env:GATE_ENFORCE     = "false"     # report without failing
+node tools/delivery/boards-gate.mjs
+```
+
+**How to verify:** with an open Sev1, the gate must exit `1` and name the item. A gate that has never been seen to block has never been tested.
+
+---
+
+## Bug 13 — Environment protection rules silently ignored
+
+**Symptom:** `prod` has required reviewers configured, but deployments proceed without anyone approving.
+
+**Cause:** Deployment protection rules on **private** repositories require GitHub Pro, Team or Enterprise. On a free private repository the environment is created and the rules are accepted by the API, but **not enforced**. Nothing warns you.
+
+**Fix:** make the repository public, or upgrade the plan. `tools/configure-github-environments.ps1` prints a warning when it detects a private repository on a personal account.
+
+**How to verify:** open Settings → Environments → prod. If the protection rules section is absent or greyed out, they are not being enforced. Do not rely on the API response — it returns success either way.
+
+---
+
+## Bug 14 — API deploys but returns 500 with MODULE_NOT_FOUND
+
+**Symptom:** The deployment succeeds; the app fails to start. Log stream shows:
+
+```
+Error: Cannot find module '@contoso/shared'
+```
+
+**Cause:** `apps/api` depends on the `@contoso/shared` workspace package. npm workspaces links it with a **symlink**, and symlinks do not survive a zip archive. The deployed bundle therefore has a dependency that resolves to nothing.
+
+**Fix:** the `build` job in `cd.yml` copies the built package in explicitly after the production install:
+
+```bash
+npm install --omit=dev --no-package-lock
+mkdir -p node_modules/@contoso
+cp -r "$GITHUB_WORKSPACE/packages/shared" node_modules/@contoso/shared
+```
+
+Order matters: `npm install` clobbers a pre-created `node_modules/@contoso`, so the copy must come **after**.
+
+**How to verify:**
+```powershell
+curl https://<api-app>.azurewebsites.net/health   # expect 200
+az webapp log tail --name <api-app> --resource-group <rg>
+```
+
+---
+
+## Bug 15 — SPA calls localhost in production
+
+**Symptom:** The deployed web app loads, but every API call fails. The browser console shows requests to `http://localhost:3001`.
+
+**Cause:** Vite inlines `VITE_*` variables at **build** time, not run time. Setting `VITE_API_BASE_URL` as an App Service application setting does nothing — the value was already baked into the JavaScript bundle when it was built.
+
+**Fix:** set it in the build step, before `vite build`:
+
+```yaml
+- name: Build web SPA with the real API URL
+  env:
+    VITE_API_BASE_URL: https://${{ env.API_APP_NAME }}.azurewebsites.net
+  run: npm run build --workspace @contoso/claims-web
+```
+
+**How to verify:**
+```powershell
+# The built bundle should contain the real hostname
+Select-String -Path apps/web/dist/assets/*.js -Pattern "azurewebsites.net" -SimpleMatch | Select-Object -First 1
+```
+
+---
+
+## Bug 16 — Push to `main` rejected by branch protection
+
+**Symptom:**
+
+```
+remote: error: GH013: Repository rule violations found for refs/heads/main.
+remote: - Changes must be made through a pull request.
+remote: - refusing to allow an OAuth App to create or update workflow
+          `.github/workflows/cd.yml` without `workflow` scope
+```
+
+**Cause:** Two separate problems reported together.
+
+1. The branch ruleset requires a pull request. This is the control working correctly.
+2. The git credential in use lacks the `workflow` scope, which is required to push any file under `.github/workflows/`.
+
+**Fix:** for the first, open a pull request rather than pushing to `main`. For the second, refresh the token scope:
+
+```powershell
+gh auth refresh -h github.com -s workflow
+gh auth setup-git
+```
+
+Note that `gh auth token` and the credential git actually uses can differ — `GH_TOKEN` in the environment takes precedence over the keyring and often has narrower scopes. Clear it if in doubt.
+
+**How to verify:**
+```powershell
+gh auth status   # scopes must include 'workflow'
 ```

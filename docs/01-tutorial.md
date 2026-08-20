@@ -4,6 +4,8 @@ This is the complete walkthrough. Every command is real and matches the actual s
 
 **Time estimate:** 90–120 minutes for a first run; 30–40 minutes once familiar.
 
+> **Architecture note.** Azure DevOps is used for **planning only**. All CI/CD runs on **GitHub Actions**. You will not create an Azure Pipeline, a service connection or a variable group anywhere in this tutorial. Azure Boards keeps one delivery responsibility — it is the authority consulted before a production release, enforced by the gate in Phase 4. See [`09-why-this-split.md`](09-why-this-split.md).
+
 ---
 
 ## Before you start
@@ -218,7 +220,7 @@ The Copilot coding agent picks up the assigned issue and creates a draft pull re
 
 ---
 
-## Phase 4 — Review and pipeline (20 minutes)
+## Phase 4 — Review and delivery (25 minutes)
 
 ### 4.1 Review the draft PR
 
@@ -243,24 +245,88 @@ Once reviews are satisfied, mark the PR **Ready for review** and add your approv
 
 > The rule: **Copilot cannot approve its own PR, and the person who triggered the agent cannot be the sole approver.** Require at least one additional human approval.
 
-### 4.3 Run the pipeline
+### 4.3 Wire GitHub Actions to Azure
 
-After merge, the pipeline triggers automatically. In Azure DevOps → Pipelines → the run progresses through:
+Delivery runs on GitHub Actions. There is **no Azure Pipeline, no service connection and no variable group** — see `docs/09-why-this-split.md`.
 
-1. **Build** — `npm ci`, lint, typecheck, 126 unit tests, Vite build
-2. **SecurityScan** — `npm audit`, CredScan
-3. **DeployDev** — Bicep + app deploy to dev
-4. **VerifyDev** — smoke tests against the deployed API
-5. **DeployProd** — staging slot → health check → swap (requires prod environment approval)
-6. **PostDeploy** — App Insights release annotation
+Federate GitHub to Azure once:
 
-> **Screenshot:** Pipeline run showing all six stages green.
+```powershell
+.\tools\configure-github-oidc.ps1 `
+    -Repository <owner>/<repo> `
+    -SubscriptionId <your-subscription-id> `
+    -ResourceGroup rg-agentic-sdlc-dev
+```
+
+This creates an Entra ID application, federates it to the `dev` and `prod` environments, grants Contributor on that one resource group, and publishes `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_SUBSCRIPTION_ID` as repository variables. Nothing it creates is a secret.
+
+Then create the environments and their protection rules:
+
+```powershell
+.\tools\configure-github-environments.ps1 `
+    -Repository <owner>/<repo> `
+    -Reviewers <your-github-username>
+```
+
+> **Verify, do not assume.** On a private repository, environment protection rules require GitHub Pro, Team or Enterprise. The API accepts them either way. Open Settings → Environments → prod and confirm the rules are actually shown.
+
+### 4.4 Watch the release gate block a deployment
+
+This is the control that keeps Azure Boards authoritative over releases.
+
+```powershell
+gh workflow run cd.yml -f gate-only=true
+gh run watch
+```
+
+The run **fails on purpose**, because the sample backlog contains an open Sev1:
+
+```
+### Azure Boards release gate — BLOCKED
+
+Blocking work items: 1 (tolerance 0)
+
+| ID | Type  | Title                                                  | State |
+| 4  | Issue | Adjudicating an already-paid claim returns 200 not 409 | To Do |
+```
+
+Azure Pipelines provides this as a built-in *Query Work Items* check. GitHub Environments cannot consult an external backlog, so `tools/delivery/boards-gate.mjs` implements it. It **fails closed** — an unreachable Azure DevOps blocks the release rather than silently allowing it.
+
+Now close work item #4 in Azure Boards and re-run:
+
+```powershell
+gh workflow run cd.yml -f gate-only=true
+```
+
+The gate passes.
+
+> A blocked release here is a **success**. The system refused to ship on top of a known critical defect, and the decision came from the backlog rather than from the pipeline.
+
+### 4.5 Deploy through the workflow
+
+```powershell
+# Deploy to dev only
+gh workflow run cd.yml
+
+# Deploy through to production (requires approval on the prod environment)
+gh workflow run cd.yml -f deploy-prod=true
+```
+
+The workflow runs: build → deploy-dev → verify-dev → boards-gate → *(approval)* → staging slot → health check → swap → post-swap health check → GitHub Release → Azure Boards write-back.
+
+If the post-swap health check fails, the workflow **swaps back automatically** and marks the run failed.
+
+Check that Azure Boards received the deployment record:
+
+**[PORTAL]** Boards → AB#2 → Discussion. There should be a comment naming the environment, version and workflow run.
+
+> **Screenshot:** the `cd.yml` run graph with the boards-gate job, alongside the deployment comment on the work item.
 
 ---
 
-## Phase 5 — Deploy infrastructure (10 minutes)
+## Phase 5 — Deploy infrastructure directly (10 minutes)
 
-If you have not already deployed to Azure:
+The workflow deploys application code to infrastructure that already exists. To create or change the infrastructure itself:
 
 ```powershell
 # Preview first
@@ -380,7 +446,7 @@ You have walked through the complete agentic SDLC loop:
 1. Backlog created and refined in Azure DevOps
 2. Work items bridged to GitHub issues and assigned to Copilot
 3. Draft PRs reviewed by agents and humans
-4. Code deployed through a six-stage gated pipeline
+4. Code delivered through GitHub Actions, blocked by an Azure Boards gate until the backlog was clear
 5. A live incident detected, investigated, and mitigated by the Azure SRE Agent
 6. Incident fed back as a governed backlog item
 

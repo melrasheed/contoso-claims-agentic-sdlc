@@ -8,7 +8,7 @@ This is the **Agentic SDLC Accelerator** adapted for **<APP_NAME>** — <APP_DES
 
 It is two things at once:
 1. A real application (**<APP_NAME>**).
-2. A demonstration of how **Azure Boards**, **GitHub Copilot agents**, **Azure Pipelines**, and the **Azure SRE Agent** combine into one governed, traceable lifecycle.
+2. A demonstration of how **Azure Boards**, **GitHub Copilot agents**, **GitHub Actions**, and the **Azure SRE Agent** combine into one governed, traceable lifecycle.
 
 ## Division of responsibility
 
@@ -33,7 +33,9 @@ It is two things at once:
 apps/              Application source (replace with your app)
 packages/          Shared packages (replace with your packages)
 infra/             Bicep — App Service, App Insights, alerts, SRE Agent
-pipelines/         Azure Pipelines multi-stage YAML and gate configuration
+.github/workflows/  GitHub Actions — CI and CD. Delivery lives here, not in Azure DevOps
+tools/delivery/boards-gate.mjs      Azure Boards release gate
+tools/delivery/boards-comment.mjs   Deployment write-back to Azure Boards
 tools/ado-bootstrap        Scaffolds the Azure DevOps project
 tools/ado-github-bridge    Syncs Boards work items to GitHub issues
 .github/agents/    The agent fleet definitions
@@ -58,7 +60,13 @@ starter-kit/       Reusable subset for customers
 
 - **No secrets in source, ever.** Use placeholders.
 - Authenticate to Azure with managed identity.
-- Authenticate pipelines with workload identity federation (OIDC).
+- Authenticate GitHub Actions to Azure with OIDC workload identity federation. Never a client secret, PAT or publish profile.
+
+## Delivery runs on GitHub Actions
+
+Azure DevOps is used for **planning only**. CI/CD lives in `.github/workflows/`. There must be no `azure-pipelines.yml` in this repository.
+
+Azure DevOps retains one delivery responsibility: it is the authority consulted before a production release, via `tools/delivery/boards-gate.mjs`, which queries Azure Boards and **fails closed**. Do not weaken it.
 - Any new dependency must be justified in the pull request description.
 
 ## Traceability requirements

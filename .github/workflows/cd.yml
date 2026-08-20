@@ -1,0 +1,392 @@
+# =============================================================================
+# Continuous delivery — GitHub Actions
+#
+# Azure DevOps is used for PLANNING ONLY (Azure Boards). Delivery runs here.
+# The one thing Azure DevOps still governs is whether a release may proceed,
+# enforced by the `boards-gate` job below.
+#
+# Authentication to Azure uses OpenID Connect federation. There is no client
+# secret, no service principal password and no publish profile in this
+# repository. See tools/configure-github-oidc.ps1.
+# =============================================================================
+name: CD
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'starter-kit/**'
+      - '**/*.md'
+  workflow_dispatch:
+    inputs:
+      deploy-prod:
+        description: 'Continue to production after the dev deployment'
+        type: boolean
+        default: false
+      gate-only:
+        description: 'Evaluate the Azure Boards release gate and stop (no deployment)'
+        type: boolean
+        default: false
+      enforce-gate:
+        description: 'Enforce the release gate. Turning this off reports without blocking.'
+        type: boolean
+        default: true
+
+# Least privilege. `id-token: write` is what allows OIDC federation to Azure.
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  # One delivery at a time. This is the GitHub Actions equivalent of the
+  # Azure Pipelines "Exclusive Lock" check.
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '20'
+  AZURE_RESOURCE_GROUP: rg-agentic-sdlc-dev
+  NAME_PREFIX: asdlcmel
+  API_APP_NAME: asdlcmel-api-dev
+  WEB_APP_NAME: asdlcmel-web-dev
+  ADO_ORGANIZATION: melrasheed
+  ADO_PROJECT: Agentic SDLC
+  RELEASE_GATE_QUERY: Shared Queries/Release Gate - active Sev1 Sev2 bugs
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Build once, deploy the same artefact everywhere.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build
+    if: ${{ !inputs.gate-only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so the Boards write-back can scan commits
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint --workspaces --if-present
+
+      - name: Typecheck
+        run: npm run typecheck --workspaces --if-present
+
+      - name: Test
+        run: npm run test --workspaces --if-present
+
+      - name: Determine version
+        id: version
+        run: echo "version=$(date -u +%Y.%m.%d)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Build API and shared package
+        run: |
+          npm run build --workspace @contoso/shared
+          npm run build --workspace @contoso/claims-api
+
+      # Vite inlines environment variables at BUILD time, not run time, so the
+      # API hostname must be known here. Getting this wrong produces a SPA that
+      # silently calls localhost in production.
+      - name: Build web SPA with the real API URL
+        env:
+          VITE_API_BASE_URL: https://${{ env.API_APP_NAME }}.azurewebsites.net
+        run: npm run build --workspace @contoso/claims-web
+
+      # The API depends on the @contoso/shared workspace package. npm workspaces
+      # link it with a symlink that does not survive a zip, so it is copied in
+      # explicitly after production-only install. Skipping this produces a
+      # MODULE_NOT_FOUND at runtime that looks nothing like a packaging problem.
+      - name: Package the API
+        run: |
+          set -euo pipefail
+          rm -rf package-staging && mkdir -p package-staging
+          cp -r apps/api/dist package-staging/dist
+          cp apps/api/package.json package-staging/package.json
+          cd package-staging
+          npm install --omit=dev --no-package-lock --silent
+          mkdir -p node_modules/@contoso
+          cp -r "$GITHUB_WORKSPACE/packages/shared" node_modules/@contoso/shared
+          rm -rf node_modules/@contoso/shared/node_modules
+          zip -qr "$GITHUB_WORKSPACE/api.zip" .
+
+      - name: Package the web SPA
+        run: cd apps/web/dist && zip -qr "$GITHUB_WORKSPACE/web.zip" .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deployment-package
+          path: |
+            api.zip
+            web.zip
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # 2. Deploy to dev. The `dev` GitHub Environment has no protection rules.
+  # ---------------------------------------------------------------------------
+  deploy-dev:
+    name: Deploy to dev
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment:
+      name: dev
+      url: https://${{ env.WEB_APP_NAME }}.azurewebsites.net
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: deployment-package
+
+      - name: Sign in to Azure (OIDC — no stored secret)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy API
+        run: |
+          az webapp deploy \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$API_APP_NAME" \
+            --src-path api.zip --type zip --async false
+
+      - name: Deploy web SPA
+        run: |
+          az webapp deploy \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$WEB_APP_NAME" \
+            --src-path web.zip --type zip --async false
+
+  # ---------------------------------------------------------------------------
+  # 3. Prove the deployment works before anything is allowed near production.
+  # ---------------------------------------------------------------------------
+  verify-dev:
+    name: Verify dev
+    needs: deploy-dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Smoke test the deployed API
+        run: |
+          set -euo pipefail
+          BASE="https://${API_APP_NAME}.azurewebsites.net"
+
+          for endpoint in /health /api/claims /api/stats; do
+            echo "--- GET ${endpoint}"
+            code=""
+            for attempt in 1 2 3 4 5 6; do
+              code=$(curl -s -o /tmp/body -w '%{http_code}' --max-time 60 "${BASE}${endpoint}" || echo "000")
+              [ "$code" = "200" ] && break
+              echo "attempt ${attempt}: HTTP ${code}, retrying"
+              sleep 15
+            done
+            if [ "$code" != "200" ]; then
+              echo "::error::${endpoint} returned ${code} after retries"
+              head -c 400 /tmp/body || true
+              exit 1
+            fi
+            echo "OK ${endpoint}"
+          done
+
+      - name: Smoke test the web SPA
+        run: |
+          set -euo pipefail
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 "https://${WEB_APP_NAME}.azurewebsites.net/")
+          [ "$code" = "200" ] || { echo "::error::web app returned ${code}"; exit 1; }
+
+  # ---------------------------------------------------------------------------
+  # 4. THE RELEASE GATE.
+  #
+  # Azure Pipelines provides a "Query Work Items" check out of the box.
+  # GitHub Environments do not, so we implement it. Azure Boards remains
+  # authoritative over whether a release may proceed even though Azure DevOps
+  # no longer runs the release.
+  #
+  # Fails closed: if Azure DevOps cannot be reached, the release is blocked.
+  # ---------------------------------------------------------------------------
+  boards-gate:
+    name: Azure Boards release gate
+    needs: verify-dev
+    # `always()` so the gate still runs in gate-only mode, where build/deploy
+    # were skipped entirely.
+    if: ${{ always() && (inputs.gate-only || needs.verify-dev.result == 'success') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Sign in to Azure (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Check Azure Boards for blocking work items
+        env:
+          ADO_ORGANIZATION: ${{ env.ADO_ORGANIZATION }}
+          ADO_PROJECT: ${{ env.ADO_PROJECT }}
+          ADO_QUERY_PATH: ${{ env.RELEASE_GATE_QUERY }}
+          ADO_PAT: ${{ secrets.ADO_PAT }}
+          GATE_MAX_BLOCKING: '0'
+          GATE_ENFORCE: ${{ inputs.enforce-gate == false && 'false' || 'true' }}
+          GATE_FAIL_ON_ERROR: 'true'
+        run: node tools/delivery/boards-gate.mjs
+
+  # ---------------------------------------------------------------------------
+  # 5. Production. Protected by the `prod` GitHub Environment, which carries
+  #    required reviewers and a main-only deployment branch policy.
+  #
+  #    Strategy: deploy to the staging slot, health check the slot, swap, then
+  #    health check production. If the post-swap check fails, swap back.
+  #    Requires Standard tier or above - B1 does not support slots.
+  # ---------------------------------------------------------------------------
+  deploy-prod:
+    name: Deploy to production
+    needs: [build, boards-gate]
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy-prod && !inputs.gate-only }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment:
+      name: prod
+      url: https://${{ vars.PROD_WEB_APP_NAME }}.azurewebsites.net
+    outputs:
+      rolled-back: ${{ steps.postswap.outputs.rolled-back }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: deployment-package
+
+      - name: Sign in to Azure (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy API to the staging slot
+        run: |
+          az webapp deploy \
+            --resource-group "${{ vars.PROD_RESOURCE_GROUP }}" \
+            --name "${{ vars.PROD_API_APP_NAME }}" \
+            --slot staging \
+            --src-path api.zip --type zip --async false
+
+      - name: Health check the staging slot
+        run: |
+          set -euo pipefail
+          URL="https://${{ vars.PROD_API_APP_NAME }}-staging.azurewebsites.net/health"
+          for attempt in 1 2 3 4 5 6; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 "$URL" || echo "000")
+            [ "$code" = "200" ] && exit 0
+            echo "attempt ${attempt}: HTTP ${code}"
+            sleep 15
+          done
+          echo "::error::Staging slot never became healthy. Not swapping."
+          exit 1
+
+      - name: Swap staging into production
+        run: |
+          az webapp deployment slot swap \
+            --resource-group "${{ vars.PROD_RESOURCE_GROUP }}" \
+            --name "${{ vars.PROD_API_APP_NAME }}" \
+            --slot staging --target-slot production
+
+      - name: Post-swap health check, roll back on failure
+        id: postswap
+        run: |
+          set +e
+          URL="https://${{ vars.PROD_API_APP_NAME }}.azurewebsites.net/health"
+          healthy=false
+          for attempt in 1 2 3 4 5 6; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 "$URL")
+            if [ "$code" = "200" ]; then healthy=true; break; fi
+            echo "attempt ${attempt}: HTTP ${code}"
+            sleep 10
+          done
+
+          if [ "$healthy" = "true" ]; then
+            echo "rolled-back=false" >> "$GITHUB_OUTPUT"
+            echo "Production is healthy after the swap."
+            exit 0
+          fi
+
+          # Mitigate first, diagnose afterwards.
+          echo "::error::Production unhealthy after swap. Rolling back."
+          az webapp deployment slot swap \
+            --resource-group "${{ vars.PROD_RESOURCE_GROUP }}" \
+            --name "${{ vars.PROD_API_APP_NAME }}" \
+            --slot staging --target-slot production
+          echo "rolled-back=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Production deployment rolled back"
+            echo ""
+            echo "The post-swap health check failed, so the previous version was swapped back."
+            echo "Investigate before retrying."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+  # ---------------------------------------------------------------------------
+  # 6. Close the loop: tell Azure Boards what actually reached production.
+  # ---------------------------------------------------------------------------
+  post-deploy:
+    name: Release and Boards write-back
+    needs: [build, deploy-prod]
+    if: ${{ success() && needs.deploy-prod.outputs.rolled-back == 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # required to create the GitHub Release
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Sign in to Azure (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Comment on the Azure Boards work items that shipped
+        env:
+          ADO_ORGANIZATION: ${{ env.ADO_ORGANIZATION }}
+          ADO_PROJECT: ${{ env.ADO_PROJECT }}
+          ADO_PAT: ${{ secrets.ADO_PAT }}
+          DEPLOY_ENVIRONMENT: production
+          DEPLOY_VERSION: ${{ needs.build.outputs.version }}
+          DEPLOY_URL: https://${{ vars.PROD_WEB_APP_NAME }}.azurewebsites.net
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node tools/delivery/boards-comment.mjs
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          gh release create "v${VERSION}" \
+            --title "v${VERSION}" \
+            --generate-notes \
+            --target "${GITHUB_SHA}"

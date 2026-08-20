@@ -93,7 +93,7 @@ Time estimates are for someone familiar with Azure and GitHub. Allow roughly dou
 
 - [ ] **3.3** [PORTAL] Configure branch protection on `main`:
   - Require pull request before merging
-  - Require status checks (Build, SecurityScan) to pass
+  - Require status checks to pass: the exact job names from `ci.yml` (for example `Lint, typecheck, test, build`), `Analyze javascript-typescript`, and `Review dependency changes`
   - Require at least 1 approval
   - Require review from CODEOWNERS
   - Do not allow bypassing the above settings
@@ -150,45 +150,53 @@ Time estimates are for someone familiar with Azure and GitHub. Allow roughly dou
 
 ---
 
-## Phase 5 — Pipeline setup (30 minutes)
+## Phase 5 — Delivery setup: GitHub Actions (25 minutes)
 
-- [ ] **5.1** [PORTAL] Create the service connection in Azure DevOps:
-  - Project Settings → Service connections → New → Azure Resource Manager → Workload identity federation (automatic)
-  - Name: `azure-svc-connection` (exact)
+> No Azure Pipeline, no service connection, no variable group. Delivery runs on GitHub Actions. See `.github/WORKFLOWS.md`.
 
-- [ ] **5.2** [PORTAL] Create three variable groups (Pipelines → Library):
-  - `agentic-sdlc-common`: `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID`, `NAME_PREFIX`, `ALERT_EMAIL`
-  - `agentic-sdlc-dev`: `VITE_API_BASE_URL`, `AZURE_RESOURCE_GROUP`, `AZURE_LOCATION`
-  - `agentic-sdlc-prod`: `VITE_API_BASE_URL`, `AZURE_RESOURCE_GROUP`, `AZURE_LOCATION`
+- [ ] **5.1** Copy the workflows and delivery tooling into your repository:
+  - `.github/workflows/` — `ci.yml`, `codeql.yml`, `dependency-review.yml`, `cd.yml`, `ado-bridge.yml`
+  - `tools/delivery/boards-gate.mjs`, `tools/delivery/boards-comment.mjs`
+  - `tools/configure-github-oidc.ps1`, `tools/configure-github-environments.ps1`
 
-  **Note on `VITE_API_BASE_URL`:** This is inlined at build time by Vite. It must be set to the correct API URL before the Build stage runs.
+- [ ] **5.2** Edit the `env:` block at the top of `cd.yml` — resource group, app names, ADO organisation and project, and the release gate query path.
 
-- [ ] **5.3** [PORTAL] Create pipeline environments:
-  - Pipelines → Environments → New → `dev` (no checks)
-  - Pipelines → Environments → New → `prod` (checks added in next step)
-
-- [ ] **5.4** [PORTAL] Import the pipeline:
-  - Pipelines → New Pipeline → GitHub → your repository → Existing YAML → `/pipelines/azure-pipelines.yml`
-  - Save (do not run yet)
-
-- [ ] **5.5** Run the gate configuration script:
+- [ ] **5.3** Federate GitHub to Azure (creates no secrets):
   ```powershell
-  $env:AZURE_DEVOPS_EXT_PAT = "<your-pat-with-environments-rw-scope>"
-  .\pipelines\configure-checks.ps1 `
-      -OrgUrl "https://dev.azure.com/<your-org>" `
-      -ProjectId "<your-project-id>" `
-      -ProjectName "<your-project>"
+  .\tools\configure-github-oidc.ps1 `
+      -Repository <owner>/<repo> `
+      -SubscriptionId <subscription-id> `
+      -ResourceGroup <resource-group>
+  ```
+  Sets `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` as repository variables.
+
+- [ ] **5.4** Create the environments and protection rules:
+  ```powershell
+  .\tools\configure-github-environments.ps1 `
+      -Repository <owner>/<repo> `
+      -Reviewers <username1>,<username2>
   ```
 
-- [ ] **5.6** [PORTAL] Add the Query Work Items check to the `prod` environment:
-  - Pipelines → Environments → `prod` → Approvals and checks → + → Query Work Items
-  - Query: `Active Critical Bugs` (created by bootstrap)
-  - Maximum threshold: `0`
+- [ ] **5.5** [PORTAL] **Verify** the protection rules are actually enforced: Settings → Environments → `prod`. On a private repository they require GitHub Pro, Team or Enterprise, and are silently ignored otherwise. The API returns success either way — do not trust it.
 
-- [ ] **5.7** [PORTAL] Add the Approvals check to the `prod` environment:
-  - + → Approvals → add your release manager team
+- [ ] **5.6** Confirm the release gate query returns rows. `bootstrap.ps1` creates `Release Gate - active Sev1 Sev2 bugs`; open it in Azure Boards and check it matches a real blocking item.
 
-- [ ] **5.8** Run the pipeline for the first time and confirm all stages complete.
+  > A query that matches nothing is a gate that always passes — indistinguishable from a healthy system.
+
+- [ ] **5.7** **Prove the gate blocks**, with a blocking work item open:
+  ```powershell
+  gh workflow run cd.yml -f gate-only=true
+  ```
+  This must **fail**. A gate you have never seen block has never been tested.
+
+- [ ] **5.8** Close the blocking work item, re-run, and confirm the gate passes.
+
+- [ ] **5.9** Run a full deployment and confirm the Azure Boards write-back comment appears on the work item:
+  ```powershell
+  gh workflow run cd.yml
+  ```
+
+- [ ] **5.10** Set the required status check contexts in the branch ruleset to match the **exact** job names reported by `ci.yml`. A mismatch means the check is required but never runs.
 
 ---
 
@@ -269,7 +277,7 @@ Time estimates are for someone familiar with Azure and GitHub. Allow roughly dou
 
 - [ ] **8.2** Confirm Copilot opens a draft PR referencing the work item. Review it.
 
-- [ ] **8.3** Merge the PR and confirm the pipeline completes all stages.
+- [ ] **8.3** Merge the PR and confirm `cd.yml` runs: build, deploy to dev, verify, and the Azure Boards release gate.
 
 - [ ] **8.4** If the SRE Agent is deployed: run the fault-injection demo per `docs/06-sre-runbook.md` §8.
 

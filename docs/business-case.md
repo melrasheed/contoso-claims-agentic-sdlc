@@ -22,13 +22,15 @@ A complete, governed lifecycle where AI participates at every stage and **every 
 
 | | System | Role |
 |---|---|---|
-| **Plan** | Azure DevOps Boards | System of record — backlog, acceptance criteria, test plans, release governance, audit trail |
-| **Build** | GitHub | System of work — Copilot coding agent, Copilot code review, GitHub Advanced Security |
+| **Plan** | Azure DevOps Boards | **Planning only** — backlog, acceptance criteria, test plans, and the authority consulted before a production release |
+| **Build** | GitHub | Code, Copilot coding agent, Copilot code review, GitHub Advanced Security, **and all CI/CD via GitHub Actions** |
 | **Run** | Azure | Runtime, plus the Azure SRE Agent closing the loop back to Boards |
 
-Eleven agents span the lifecycle: requirements refinement, architecture decisions, threat modelling, implementation, testing, code review, security review, pipeline authoring, release notes, incident response, and an orchestrator that enforces the handoff gates between them.
+Eleven agents span the lifecycle: requirements refinement, architecture decisions, threat modelling, implementation, testing, code review, security review, workflow authoring, release notes, incident response, and an orchestrator that enforces the handoff gates between them.
 
 **The defining property is that there is no fast lane.** Code written by the Copilot coding agent, and fixes written autonomously by the Azure SRE Agent during an incident, pass through exactly the same pull request checks, the same review, and the same release gates as code written by a human. AI increases throughput into the funnel; it does not widen the funnel's controls.
+
+**The second defining property is separation of duties.** Delivery runs in GitHub, but Azure Boards decides whether a release may proceed. An engineer can change a workflow file; they cannot silently close the Sev1 defect in Azure Boards that is blocking the release. That turns "do not ship on top of a known critical defect" from a convention into a control with a separate authority — which is the answer when an auditor asks how AI-assisted delivery is governed.
 
 ## 3. Evidence this is real
 
@@ -36,10 +38,21 @@ This is not a slideware concept. The following was executed against live systems
 
 - A work item created in Azure Boards (`Agentic SDLC` project) was automatically converted into a GitHub issue with full context, assigned to the GitHub Copilot coding agent, which opened a draft pull request on branch `copilot/issue-2-require-dual-approval`.
 - The Azure Boards work item was updated automatically with a hyperlink to the issue, provenance tags (`ai-implementing`, `synced-to-github`), a state transition, and an audit comment.
-- Infrastructure (App Service, Application Insights, Azure Monitor alerts, Azure SRE Agent) validated against a real Azure subscription.
-- The reference application ships with 126 passing tests.
+- Delivery runs entirely on GitHub Actions using OIDC federation — **no service connection, no stored client secret, no publish profile**.
+- Infrastructure (App Service, Application Insights, Azure Monitor alerts, Azure SRE Agent) validated and deployed to a real Azure subscription.
+- The reference application ships with 182 passing tests.
 
-Along the way the build surfaced **ten genuine integration defects** — including a broken Azure DevOps MCP endpoint, an Azure DevOps API that reports the wrong process template, and an idempotency bug caused by GitHub's search API returning pull requests where issues were expected. Each is documented with symptom, cause, fix and verification. That troubleshooting guide is, for many customers, more immediately valuable than the demo itself, because it is the friction they will hit in week one.
+Along the way the build surfaced **sixteen genuine integration defects** — including a broken Azure DevOps MCP endpoint, an Azure DevOps API that reports the wrong process template, an idempotency bug caused by GitHub's search API returning pull requests where issues were expected, and a high-severity shell-escaping vulnerability that CodeQL caught in the project's own tooling and blocked at the pull request. Each is documented with symptom, cause, fix and verification. That troubleshooting guide is, for many customers, more immediately valuable than the demo itself, because it is the friction they will hit in week one.
+
+### The governance proved itself
+
+Three times, on real changes:
+
+1. **Branch protection blocked a direct push to `main`**, forcing the change through a pull request.
+2. **CodeQL blocked that pull request** on a genuine high-severity finding in AI-assisted code — incomplete shell escaping that allowed argument injection on Windows. It was fixed with regression tests before merge.
+3. **Dependabot** opened security update pull requests for vulnerable transitive dependencies as soon as scanning was enabled.
+
+That is the argument in miniature: AI-generated code met the same controls as human code, and the controls caught something real.
 
 ## 4. Where the value comes from
 
@@ -94,12 +107,15 @@ A 50-engineer organisation. Substitute the customer's actual figures.
 |---|---|---|
 | GitHub Copilot Enterprise | 50 seats | ~£23,000 |
 | GitHub Advanced Security | 50 committers | ~£30,000 |
-| Azure DevOps | mostly covered by existing licences | ~£3,000 |
+| GitHub Actions minutes | Free on public repos; ~3,000 private minutes/month beyond the included allowance | ~£2,000 |
+| Azure DevOps | Boards only — the Basic plan is free for the first 5 users and most enterprises already hold licences | ~£1,500 |
 | Azure SRE Agent | token-based consumption, scoped to production | ~£15,000 |
 | Azure runtime for the accelerator itself | B1/S1 App Service, App Insights | ~£1,500 |
 | Enablement — build-out, training, adoption support | one-off, amortised over year one | ~£60,000 |
-| **Total year one** | | **~£132,500** |
-| **Total steady state (year two onward)** | | **~£72,500** |
+| **Total year one** | | **~£133,000** |
+| **Total steady state (year two onward)** | | **~£73,000** |
+
+> Using Azure DevOps for **planning only** reduces its licence footprint: no parallel-job purchases and no Azure Pipelines consumption. That saving is modest in absolute terms, but it removes a second CI/CD product from the estate — one fewer thing to secure, patch, and train people on.
 
 ### 5.4 Three scenarios
 
@@ -174,13 +190,17 @@ The accelerator makes that pilot cheap: the starter kit, tutorial and troublesho
 
 | Artefact | Purpose |
 |---|---|
-| Working reference application | Contoso Claims API + UI, 126 tests |
+| Working reference application | Contoso Claims API + UI, 182 tests |
 | 11-agent fleet definitions | Portable across repositories and customers |
 | Process-aware Azure DevOps bootstrap | Works on Basic, Agile, Scrum and CMMI |
 | Azure Boards ↔ GitHub bridge | Traceability and provenance, with a native-integration fallback |
-| Bicep infrastructure | Including the Azure SRE Agent, validated |
-| Multi-stage pipeline with real gates | Query gate, approvals, canary, auto-rollback |
+| **Azure Boards release gate** | Restores the Azure Pipelines "Query Work Items" control in GitHub Actions, where no equivalent exists |
+| **Boards deployment write-back** | Keeps Azure Boards a complete record of what actually shipped |
+| GitHub Actions CI/CD | Build, scan, deploy, gate, approve, canary swap, auto-rollback, release |
+| OIDC federation scripts | No stored secrets; production credentials bound to an approved environment |
+| Bicep infrastructure | Including the Azure SRE Agent, validated and deployed |
 | Preflight readiness doctor | Detects broken integrations before they derail a demo |
 | Tutorial, security model, SRE runbook | Step-by-step adoption |
-| Troubleshooting guide | Ten real defects with symptom, cause, fix, verification |
+| Architecture rationale | Why planning and delivery are separated, and what it costs |
+| Troubleshooting guide | Sixteen real defects with symptom, cause, fix, verification |
 | Starter kit with `init` configurator | Adopt in minutes, then modify |

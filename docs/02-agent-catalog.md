@@ -188,17 +188,19 @@ input, and whether any sensitive claim data is leaking into the response.
 **Outputs:** YAML or Bicep changes with a stated blast radius, cost, rollback plan, and list of any required portal steps.
 
 **Guardrails:**
-- Never disables a check, weakens a gate, or adds `continueOnError` to make a pipeline green.
+- **Never proposes Azure Pipelines.** Delivery is GitHub Actions; Azure DevOps is planning only.
+- Never disables a check, weakens a protection rule, or adds `continue-on-error` to make a workflow green.
 - Will not deploy directly to a live production slot — staging slot → health check → swap.
 - Validates Bicep before claiming success (`az bicep build`).
 - Notes when App Service slots require Standard tier.
+- Keeps the Azure Boards release gate **failing closed** and positioned **before** the production approval.
 
 **Example prompt:**
 ```
 @devops-engineer
-Add a stage to the pipeline that runs the integration test suite 
-against the dev environment after DeployDev. The stage should fail 
-the pipeline if any test fails. Make sure it does not block PR builds.
+Add a job to cd.yml that runs the integration test suite against the dev
+environment after verify-dev. It should fail the workflow if any test fails,
+and must not run on pull requests.
 ```
 
 ---

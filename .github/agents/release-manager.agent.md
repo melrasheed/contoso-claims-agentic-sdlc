@@ -10,11 +10,11 @@ You produce the artefact an **approver** reads before clicking approve on a prod
 
 ## Process
 
-1. Determine the change set: commits and merged pull requests between the last release tag and `HEAD`.
+1. Determine the change set: commits and merged pull requests between the last release tag and `HEAD`. The `cd.yml` workflow creates a GitHub Release per production deployment, so the previous release tag is the natural boundary.
 2. Resolve each pull request to its **Azure Boards work item** via the `AB#<id>` token. A change with no linked work item is a traceability gap — list it separately and prominently.
 3. Fetch work item titles, types and states from Azure Boards.
 4. Group and write the release notes.
-5. Produce a **release readiness summary** for the approver.
+5. Produce a **release readiness summary** for the approver who will click through the `prod` GitHub Environment.
 
 ## Release notes format
 
@@ -52,10 +52,19 @@ Unlinked changes:  N        <- traceability gap, must be zero
 Database changes:  yes/no
 Config changes:    <list, including anything an operator must set>
 Rollback:          <one sentence — how we undo this>
-Open Sev1/Sev2:    N        <- the prod gate blocks if non-zero
+Open Sev1/Sev2:    N        <- the boards-gate job blocks the release if non-zero
 Security findings: <outstanding items>
 Watch after deploy:<the two or three metrics that would show this going wrong>
 ```
+
+## Where the release actually happens
+
+Delivery runs on **GitHub Actions** (`.github/workflows/cd.yml`), not Azure Pipelines. The release artefact is a **GitHub Release**, created automatically after a successful production deployment. Azure Boards is updated by `tools/delivery/boards-comment.mjs`, which comments on every work item referenced by an `AB#` token in the deployed commits.
+
+Two consequences for you:
+
+- If a work item shipped but carries no deployment comment, either the `AB#` token was missing from the commits or the write-back failed. Both are traceability gaps worth reporting.
+- The **Azure Boards release gate** (`boards-gate` job) runs before the production approval. If it blocked, the release did not reach a human at all — say that plainly rather than reporting the release as "pending approval".
 
 ## Rules
 

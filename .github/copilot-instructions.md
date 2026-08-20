@@ -15,11 +15,21 @@ Treat the second purpose as a first-class requirement. Changes must not only wor
 
 | System | Role | Never do this |
 |---|---|---|
-| **Azure DevOps** (`Agentic SDLC` project) | System of record: planning, backlog, test plans, release governance, audit | Don't put source code here |
-| **GitHub** (`melrasheed/contoso-claims-agentic-sdlc`) | System of work: code, AI execution, PR review, security scanning | Don't invent independent backlog items here |
+| **Azure DevOps** (`Agentic SDLC` project) | **Project management only** — Boards: epics, work items, acceptance criteria, tags, queries, audit trail | Don't put source code here. **Don't build pipelines here** — delivery is GitHub Actions |
+| **GitHub** (`melrasheed/contoso-claims-agentic-sdlc`) | Everything else — code, AI execution, PR review, **CI/CD**, environments, approvals, security scanning, releases | Don't invent independent backlog items here |
 | **Azure** | Runtime and operations, including the Azure SRE Agent | Don't create resources outside the demo resource groups |
 
 **Every unit of work originates as an Azure Boards work item.** If you are asked to implement something with no work item, say so and offer to create one — do not silently start coding.
+
+## Delivery runs on GitHub Actions
+
+This repository deliberately separates **planning** (Azure DevOps) from **delivery** (GitHub). There is no `azure-pipelines.yml` and there must never be one.
+
+- CI and CD live in `.github/workflows/`. `ci.yml` validates pull requests; `cd.yml` deploys.
+- Azure authentication uses **OIDC federation** (`azure/login` with `vars.AZURE_CLIENT_ID`). There is no service connection, no client secret and no publish profile anywhere in this repository.
+- Deployment approvals are **GitHub Environment** protection rules, not Azure DevOps checks.
+
+Azure DevOps retains exactly one delivery responsibility: it is the authority consulted before a production release. Azure Pipelines has a built-in "Query Work Items" check for this; GitHub has no equivalent, so it is implemented as `tools/delivery/boards-gate.mjs`, which runs as a job in `cd.yml` and **fails closed**. Do not weaken it. See `docs/09-why-this-split.md` and `docs/04-release-gates.md`.
 
 ## Tooling rules
 
@@ -37,7 +47,9 @@ apps/api          Express + TypeScript claims API
 apps/web          React + Vite claims console
 packages/shared   Shared domain types, zod schemas, risk scoring
 infra/            Bicep — App Service, App Insights, alerts, SRE Agent
-pipelines/        Azure Pipelines multi-stage YAML and gate configuration
+.github/workflows CI and CD — GitHub Actions owns all delivery
+tools/delivery/boards-gate.mjs      Azure Boards release gate (replaces the ADO check)
+tools/delivery/boards-comment.mjs   Writes deployment results back to Azure Boards
 tools/preflight   Integration readiness "doctor"
 tools/ado-bootstrap        Scaffolds the Azure DevOps project
 tools/ado-github-bridge    Syncs Boards work items to GitHub issues
@@ -60,10 +72,10 @@ starter-kit/      App-agnostic reusable subset for customers
 ## Security rules — non-negotiable
 
 - **No secrets in source, ever.** No connection strings, PATs, keys or passwords, including in tests, comments, sample `.env` files or documentation examples. Use placeholders like `<your-connection-string>`.
-- Authenticate to Azure with **managed identity**; authenticate pipelines with **workload identity federation (OIDC)**. Never a PAT or client secret.
+- Authenticate to Azure with **managed identity** at runtime; authenticate GitHub Actions to Azure with **OIDC workload identity federation**. Never a PAT, client secret or publish profile.
 - Claim data is treated as **sensitive personal data**. Never log `claimantName`, `policyNumber`, or full claim bodies. Log claim IDs only.
 - Any new dependency must be justified in the pull request description. Prefer the standard library.
-- Never weaken or bypass a branch protection rule, a required check, or a release gate to make something pass.
+- Never weaken or bypass a branch protection rule, a required check, an environment protection rule, or the Azure Boards release gate to make something pass.
 
 ## The fault injection endpoints are deliberate
 

@@ -27,8 +27,15 @@ Complete all of these before arriving or opening the screen share.
 ### Boards state
 
 - [ ] AB#2 and AB#3 exist, tagged `ai-ready`, state `To Do`
-- [ ] AB#4 exists as a sample task
+- [ ] **AB#4 exists, tagged `sev1`, state `To Do`** — this is what makes the release gate block on cue. Verify with the `Release Gate - active Sev1 Sev2 bugs` shared query; it must return exactly one row
 - [ ] No stray `synced-to-github` or `ai-implementing` tags on the demo items (re-run bootstrap if needed)
+
+### Delivery state
+
+- [ ] `gh auth status` shows the `workflow` scope
+- [ ] Repository variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` are set
+- [ ] `dev` and `prod` GitHub Environments exist; `prod` has a required reviewer
+- [ ] A previous successful `cd.yml` run exists to show as a baseline
 
 ### GitHub state
 
@@ -129,21 +136,53 @@ Focus on the dual-approval workflow and whether the authorisation check is serve
 
 ---
 
-### 9:00–13:00 — The pipeline: six stages, all gated
+### 9:00–13:00 — Delivery on GitHub Actions, and a gate that actually blocks
 
-**Show:** Azure Pipelines → a recent successful run. Walk through the stages.
+**Say:** "Delivery runs on GitHub Actions. Azure DevOps is used for planning only. But notice what that costs us."
 
-**Say:** "Six stages. The first three must pass on every PR — nobody gets code to dev unless build, lint, tests, and security scan pass. The fourth verifies the deployment works in dev. The fifth — production — gates on approvals, business hours, and an Azure Boards query."
+**Show:** `.github/workflows/cd.yml` — the job list: build, deploy-dev, verify-dev, **boards-gate**, deploy-prod, post-deploy.
 
-Point at the DeployProd stage:
+**Say:** "Azure Pipelines has a built-in check called *Query Work Items*. It holds a release while a critical bug is open. GitHub Environments have required reviewers, wait timers, branch policies — but they cannot consult an external backlog. Move delivery to Actions and you lose that control."
 
-"The prod environment has four checks. Query Work Items blocks deployment if any active critical issue exists in Azure Boards. Business Hours prevents unattended night deployments. Approvals require at least one person outside the authoring team to click approve. Exclusive Lock prevents concurrent deploys."
+"So we rebuilt it."
+
+**Do — the moment the whole demo is built around:**
+```powershell
+gh workflow run cd.yml -f gate-only=true
+gh run watch
+```
+
+**Show:** the run **fails**, and the job summary:
+
+```
+### Azure Boards release gate — BLOCKED
+
+Blocking work items: 1 (tolerance 0)
+
+| ID | Type  | Title                                                  | State |
+| 4  | Issue | Adjudicating an already-paid claim returns 200 not 409 | To Do |
+```
+
+**Say:** "That is a real work item in Azure Boards, and the deployment just stopped because of it. Nobody wrote a rule in the pipeline saying 'don't ship' — a delivery manager put a Sev1 in the backlog, and the release respected it."
+
+"Here is the part that matters for audit. I have write access to this repository. I could edit that workflow. But I **cannot** quietly close that work item — different system, different permission, visible act by a named person. That is separation of duties as a control, not a convention."
+
+**Do:** close AB#4 in Azure Boards, re-run:
+```powershell
+gh workflow run cd.yml -f gate-only=true
+```
+
+**Show:** the gate now passes.
+
+**Say:** "And production requires a human approval on top — bound to the GitHub environment. The credentials to deploy to production are federated to that environment, so if you skip the approval, the identity doesn't even exist. The approval is enforced by Entra ID, not by YAML anyone could edit."
 
 **Say:** "There is no fast lane for AI-authored code. A Copilot fix branch and a human fix branch go through the same checks."
 
-> **Screenshot:** Pipeline run showing all six stages and the prod gate check.
+> **Screenshot:** the failed run's job summary naming work item #4, side by side with the Boards item.
 
-**If it breaks:** If no recent run exists, show the pipeline YAML and explain the stages verbally.
+**If it breaks:**
+- Gate passes when it should block: the backing query is wrong. Show the query in Boards and explain the Basic-process fallback (`sev1` tag rather than a Bug type). See `docs/07-troubleshooting.md` §12.
+- `azure/login` fails: OIDC subject mismatch — §11. Fall back to running `node tools/delivery/boards-gate.mjs` locally with `az login`, which produces the same output.
 
 ---
 
@@ -195,9 +234,9 @@ Invoke-RestMethod -Uri "$api/api/admin/fault" -Method POST -ContentType "applica
 
 ### 18:00–20:00 — Closing: what this means
 
-**Say:** "What you saw was a complete loop. A work item in Azure Boards. Governed handoff to GitHub. AI implementation. AI and human code review. A gated, six-stage pipeline. A live incident investigated and mitigated by an AI agent in Review mode. A fix branch governed by the same controls as a human's code."
+**Say:** "What you saw was a complete loop. A work item in Azure Boards. Governed handoff to GitHub. AI implementation. AI and human code review. A delivery workflow that refused to ship because of an open Sev1. A live incident investigated and mitigated by an AI agent in Review mode. A fix branch governed by the same controls as a human's code."
 
-"Azure DevOps is still your system of record. Azure Boards is still where your project managers, auditors, and release managers work. GitHub is where the code and the AI execution happen. Azure is the runtime. The AI agents accelerate the work — they do not replace the governance."
+"Azure DevOps is where your project managers, auditors and release managers work — and it stays authoritative over whether a release may proceed. GitHub is where the code, the AI execution and the delivery happen. Azure is the runtime. The AI agents accelerate the work — they do not replace the governance."
 
 "The question your auditor, your regulator, or your CISO will ask is: can you explain this change? Where did it come from? Who approved it? The answer is yes — because every change traces to a work item, every AI-authored contribution is labelled, and every merge went through the gates."
 

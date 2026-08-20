@@ -212,8 +212,35 @@ function New-SharedQuery {
     )
 
     $encodedPath = ($FolderPath -split '/' | ForEach-Object { [uri]::EscapeDataString($_) }) -join '/'
-    $existing = Invoke-Ado -Uri "$script:ProjectUrl/_apis/wit/queries/$encodedPath/$([uri]::EscapeDataString($Name))`?api-version=$script:ApiVersion" -AllowNotFound
-    if ($existing) { Write-Exists "query '$Name'"; return $existing }
+    $queryUri = "$script:ProjectUrl/_apis/wit/queries/$encodedPath/$([uri]::EscapeDataString($Name))"
+    $existing = Invoke-Ado -Uri "$queryUri`?`$expand=wiql&api-version=$script:ApiVersion" -AllowNotFound
+
+    if ($existing) {
+        # Idempotency must not mean "leave a broken query in place". A gate query
+        # written for the wrong process silently matches nothing - and a query
+        # that matches nothing is a gate that always passes, which is
+        # indistinguishable from a healthy system. So compare and repair.
+        $normalise = { param($s) ($s -replace '\s+', ' ').Trim().ToLowerInvariant() }
+        $currentWiql = if ($existing.PSObject.Properties.Name -contains 'wiql') { $existing.wiql } else { '' }
+
+        if ((& $normalise $currentWiql) -eq (& $normalise $Wiql)) {
+            Write-Exists "query '$Name'"
+            return $existing
+        }
+
+        if (-not $PSCmdlet.ShouldProcess("query '$Name'", 'Update stale query definition')) { return $existing }
+
+        try {
+            $updated = Invoke-Ado -Uri "$queryUri`?api-version=$script:ApiVersion" -Method PATCH -Body @{ wiql = $Wiql }
+            Write-Created "query '$Name' (updated - the stored definition did not match this project's process)"
+            return $updated
+        }
+        catch {
+            Write-Warn "Could not update query '$Name': $($_.Exception.Message)"
+            Write-Warn "The stored query may not match this project's process. Verify it returns the rows you expect."
+            return $existing
+        }
+    }
 
     if (-not $PSCmdlet.ShouldProcess("query '$Name'", 'Create shared query')) { return $null }
 

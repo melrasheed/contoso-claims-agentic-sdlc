@@ -1,0 +1,19 @@
+{
+  "name": "@contoso/delivery",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Delivery controls that bridge GitHub Actions and Azure Boards: the release gate and the deployment write-back. Dependency-free ESM so they run on any CI, not only GitHub Actions.",
+  "scripts": {
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "gate": "node boards-gate.mjs",
+    "comment": "node boards-comment.mjs"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

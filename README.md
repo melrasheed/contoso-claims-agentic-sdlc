@@ -4,35 +4,36 @@
 
 This repository shows how **Azure DevOps**, **GitHub**, and **Azure** combine into one governed, traceable software development lifecycle where AI agents participate at every stage — from backlog refinement to incident remediation — while humans hold the decisions that matter.
 
+**Azure DevOps is used for planning only. All CI/CD runs on GitHub Actions.** Azure Boards keeps exactly one delivery responsibility: it is the authority consulted before a production release. See [`docs/09-why-this-split.md`](docs/09-why-this-split.md) for the reasoning and the costs.
+
 ---
 
 ## Architecture
 
 ```mermaid
 flowchart TB
-    subgraph ADO ["Azure DevOps — System of Record"]
-        Boards["Boards\n(Epics · Issues · Tasks)"]
+    subgraph ADO ["Azure DevOps - planning only"]
+        Boards["Boards: Epics, Issues, Tasks"]
         TestPlans["Test Plans"]
-        Pipelines["Azure Pipelines\n(6-stage, gated)"]
-        Queries["Shared Queries\n(release gate)"]
+        Queries["Shared Queries: release gate"]
     end
 
-    subgraph GH ["GitHub — System of Work"]
-        Issues["Issues\n(Copilot coding agent)"]
-        PRs["Pull Requests\n(Copilot code review)"]
-        GHAS["GHAS\n(CodeQL · Dependabot · secret scan)"]
-        Actions["Actions\n(CI triggers)"]
+    subgraph GH ["GitHub - code, AI and delivery"]
+        Issues["Issues: Copilot coding agent"]
+        PRs["Pull Requests: Copilot code review"]
+        GHAS["GHAS: CodeQL, Dependabot, secret scan"]
+        CI["Actions ci.yml"]
+        CD["Actions cd.yml: build, deploy, gate, approve, swap"]
     end
 
-    subgraph AZ ["Azure — Runtime + Operations"]
-        AppSvc["App Service\n(API + Web SPA)"]
+    subgraph AZ ["Azure - runtime and operations"]
+        AppSvc["App Service: API + Web SPA"]
         AppInsights["Application Insights"]
-        LogAnalytics["Log Analytics"]
         Alerts["Azure Monitor Alerts"]
-        SRE["Azure SRE Agent\n(Microsoft.App/agents)"]
+        SRE["Azure SRE Agent"]
     end
 
-    subgraph Agents ["Agent Fleet (.github/agents/)"]
+    subgraph Agents ["Agent fleet (.github/agents/)"]
         Orch["sdlc-orchestrator"]
         BA["business-analyst"]
         Arch["architect"]
@@ -47,11 +48,14 @@ flowchart TB
     Boards -- "bridge syncs ai-ready items" --> Issues
     Issues -- "Copilot creates draft PR" --> PRs
     PRs -- "AB# token links back" --> Boards
-    PRs --> Pipelines
-    Pipelines -- "Bicep deploy" --> AppSvc
+    PRs --> CI
+    CI -- "merge to main" --> CD
+    Queries -- "release gate: blocks on open Sev1" --> CD
+    CD -- "OIDC, no stored secret" --> AppSvc
+    CD -- "deployment write-back" --> Boards
     AppInsights --> Alerts
     Alerts --> SRE
-    SRE -- "fix branch + ADO Bug" --> GH
+    SRE -- "fix branch + GitHub issue" --> GH
     SRE -- "work item filed" --> Boards
 
     Orch -.->|orchestrates| BA
@@ -60,10 +64,18 @@ flowchart TB
     TM -.->|threat model| Boards
     TE -.->|tests| PRs
     SR -.->|security review| PRs
-    DE -.->|pipeline + infra| Pipelines
+    DE -.->|workflows + infra| CD
     RM -.->|release notes| Boards
     SL -.->|incident review| SRE
 ```
+
+### The one control that had to be built
+
+Azure Pipelines has a built-in **Query Work Items** check that holds a release while a Sev1 defect is open. GitHub Environments offer required reviewers, wait timers and branch policies — but cannot consult an external backlog.
+
+`tools/delivery/boards-gate.mjs` restores it: a dependency-free script that queries an Azure Boards shared query and fails the deployment job when blocking work items exist. It **fails closed**, and it runs *before* the production approval so a human is only ever asked to approve a release already known to be clear.
+
+That is what keeps Azure Boards authoritative over releases without Azure DevOps running the release.
 
 ---
 
@@ -92,13 +104,15 @@ The first nine are *authored agents* — prompt files in `.github/agents/`. The 
 
 | Component | Status |
 |---|---|
-| Reference app (Contoso Claims API + Web) | Working — 126 tests passing |
+| Reference app (Contoso Claims API + Web) | Working — 182 tests passing |
 | Agent fleet definitions | Written — use in any GitHub Copilot-enabled org |
 | ADO bootstrap script | Working — tested against `melrasheed/Agentic SDLC` |
 | ADO–GitHub bridge | Working — synced AB#2 and AB#3 with write-back verified |
-| Bicep infrastructure | Validated — `az bicep build` and `az deployment group validate` clean |
-| Azure Pipelines YAML | Authored — requires a service connection and variable groups (portal steps) |
-| Azure SRE Agent | Bicep module ready — GitHub/ADO connectors require portal setup |
+| Bicep infrastructure | Deployed — dev environment live on Azure App Service |
+| GitHub Actions CI | Working — required check on `main` |
+| GitHub Actions CD (`cd.yml`) | Authored — needs OIDC federation and environments (two scripts) |
+| Azure Boards release gate | Built and unit tested — blocks on open Sev1 work items |
+| Azure SRE Agent | Deployed in Review mode — GitHub/ADO connectors require portal setup |
 | MCP server config | Template only — paths and tokens are per-user |
 
 ---
@@ -120,11 +134,13 @@ Full tutorial: **[docs/01-tutorial.md](docs/01-tutorial.md)**
 | [docs/01-tutorial.md](docs/01-tutorial.md) | Complete numbered walkthrough |
 | [docs/02-agent-catalog.md](docs/02-agent-catalog.md) | All 11 agents: purpose, inputs, guardrails |
 | [docs/03-branch-and-pr-policy.md](docs/03-branch-and-pr-policy.md) | Branch strategy and PR rules |
-| [docs/04-release-gates.md](docs/04-release-gates.md) | Pipeline stages, gates, and rollback |
-| [docs/05-security-model.md](docs/05-security-model.md) | Threat model of the system itself |
+| [docs/04-release-gates.md](docs/04-release-gates.md) | GitHub Actions delivery, the Boards gate, rollback |
+| [docs/05-security-model.md](docs/05-security-model.md) | Threat model, OIDC, separation of duties |
 | [docs/06-sre-runbook.md](docs/06-sre-runbook.md) | Azure SRE Agent setup and fault-injection demo |
-| [docs/07-troubleshooting.md](docs/07-troubleshooting.md) | All 10 known bugs with symptoms and fixes |
+| [docs/07-troubleshooting.md](docs/07-troubleshooting.md) | Sixteen verified defects with symptoms and fixes |
 | [docs/08-demo-script.md](docs/08-demo-script.md) | Timed 20-minute live demo runbook |
+| [docs/09-why-this-split.md](docs/09-why-this-split.md) | Why Azure DevOps plans and GitHub delivers |
+| [docs/business-case.md](docs/business-case.md) | ROI model and adoption roadmap |
 
 ## Starter kit
 

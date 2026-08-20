@@ -17,6 +17,9 @@ Get the Agentic SDLC Accelerator running against your own Azure DevOps organisat
 | Azure DevOps | Organisation admin, or the ability to create projects |
 | GitHub | Repository admin on the target repo |
 | GitHub Copilot | Copilot Business or Enterprise licence on the org |
+| GitHub CLI | 2.40+ (`gh --version`), authenticated with `gh auth login` |
+
+> **Delivery runs on GitHub Actions.** Azure DevOps is used for planning only. You will not create a service connection, a variable group or an Azure Pipeline anywhere in this guide. See `docs/09-why-this-split.md` for the reasoning.
 
 **Verify Node and npm:**
 ```powershell
@@ -48,7 +51,7 @@ npm ci
 npm test
 ```
 
-Expected: all 126 tests pass.
+Expected: all tests pass (182 at the time of writing).
 
 ---
 
@@ -103,26 +106,45 @@ Deployment Outputs:
 { "apiAppUrl": { "value": "https://<prefix>-api-dev.azurewebsites.net" }, ... }
 ```
 
-Note the API URL — you need it for the pipeline variable group in the next step.
+Note the API URL — the CD workflow bakes it into the SPA at build time.
 
 ---
 
-## Step 5 — Configure the pipeline
+## Step 5 — Wire GitHub Actions to Azure (OIDC, no secrets)
 
-1. **Create variable groups** in Azure DevOps → Pipelines → Library → Variable Groups. See `pipelines/README.md` §Variable Groups for the exact variable names and values.
+Delivery runs on GitHub Actions. There is no Azure DevOps service connection, no variable group, and no stored credential.
 
-2. **Create a service connection** (OIDC / Workload Identity Federation):
-   - Project Settings → Service connections → New → Azure Resource Manager → Workload identity federation (automatic)
-   - Name it exactly: `azure-svc-connection`
+**a. Federate GitHub to Azure:**
 
-3. **Create environments**:
-   - Pipelines → Environments → New → `dev` (no checks)
-   - Pipelines → Environments → New → `prod` (add approval later)
+```powershell
+.\tools\configure-github-oidc.ps1 `
+    -Repository <owner>/<repo> `
+    -SubscriptionId <your-subscription-id> `
+    -ResourceGroup rg-agentic-sdlc-dev
+```
 
-4. **Import the pipeline**:
-   - Pipelines → New Pipeline → GitHub → your repository
-   - Existing YAML file → branch `main`, path `/pipelines/azure-pipelines.yml`
-   - Save (do not run yet)
+This creates an Entra ID application, federates it to the `dev` and `prod` GitHub environments, grants Contributor on that resource group only, and sets `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` and `AZURE_SUBSCRIPTION_ID` as repository **variables**. They are identifiers, not secrets.
+
+**b. Create the environments and their protection rules:**
+
+```powershell
+.\tools\configure-github-environments.ps1 `
+    -Repository <owner>/<repo> `
+    -Reviewers <your-github-username>
+```
+
+`dev` is deliberately unprotected. `prod` requires a human approval, prevents self-review, and only accepts deployments from protected branches.
+
+**Success looks like:**
+```
+=== Environment: prod ===
+  + prod
+  +   required reviewers: alice
+  +   protected branches only
+  +   self-review prevented
+```
+
+> On a **private** repository, environment protection rules need GitHub Pro, Team or Enterprise. On a free private repo the rules are silently ignored — check the environment settings page rather than assuming.
 
 ---
 
@@ -171,11 +193,38 @@ created=1 already-synced=0 skipped=0 failed=0
 
 ---
 
+## Step 8 — Watch the release gate work
+
+This is the control that keeps Azure Boards authoritative over releases even though delivery runs on GitHub Actions.
+
+```powershell
+gh workflow run cd.yml -f gate-only=true
+gh run watch
+```
+
+The sample backlog includes an open Sev1 defect, so the first run **fails on purpose**:
+
+```
+### Azure Boards release gate — BLOCKED
+
+Blocking work items: 1 (tolerance 0)
+
+| ID | Type  | Title                                                    | State |
+| 4  | Issue | Adjudicating an already-paid claim returns 200 not 409   | To Do |
+```
+
+Close work item #4 in Azure Boards and re-run. The gate passes and the deployment proceeds.
+
+A blocked release here is a **success**, not a failure — the system refused to ship on top of a known critical defect.
+
+---
+
 ## What to do next
 
 - Follow the full tutorial: `docs/01-tutorial.md`
 - Read the agent catalog: `docs/02-agent-catalog.md`
-- Configure release gates: `docs/04-release-gates.md`
+- Understand the gates: `docs/04-release-gates.md`
+- Understand the architecture choice: `docs/09-why-this-split.md`
 - Set up the SRE Agent: `docs/06-sre-runbook.md`
 
 If anything fails, see `docs/07-troubleshooting.md`.

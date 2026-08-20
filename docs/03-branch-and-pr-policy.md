@@ -69,15 +69,24 @@ The following checks are required on `main` before merge. They are enforced by b
 
 | Check | Enforced by |
 |---|---|
-| Build (lint + typecheck + unit tests) | Pipeline — Build stage |
-| Security scan (npm audit + CredScan) | Pipeline — SecurityScan stage |
-| At least one human approval | GitHub branch protection |
-| Copilot code review (when available) | GitHub branch protection |
-| No unresolved conversations | GitHub branch protection |
+| `Lint, typecheck, test, build` | `.github/workflows/ci.yml` |
+| `Analyze javascript-typescript` (CodeQL) | `.github/workflows/codeql.yml` |
+| `Review dependency changes` | `.github/workflows/dependency-review.yml` |
+| At least one human approval | GitHub branch ruleset |
+| Code owner review on protected paths | GitHub branch ruleset + CODEOWNERS |
+| No unresolved conversations | GitHub branch ruleset |
 
-### Status checks and the pipeline
+### Status checks and the workflows
 
-The pipeline runs on every PR targeting `main`. The Build and SecurityScan stages must pass before merge. The DeployDev and VerifyDev stages run post-merge on `main`.
+CI runs on every pull request targeting `main`; those checks must pass before merge. Delivery (`cd.yml`) runs **after** merge — it deploys to dev, evaluates the Azure Boards release gate, and only reaches production on a deliberate `workflow_dispatch`.
+
+> **A trap worth knowing.** The required status check *context* in the branch ruleset must exactly match the job name reported by the workflow. If they differ, the check is listed as required but never runs — so the ruleset appears configured while enforcing nothing. Verify with:
+> ```powershell
+> gh api repos/<owner>/<repo>/rules/branches/main --jq '.[] | select(.type=="required_status_checks")'
+> ```
+> and compare against the names in `gh run view <id> --json jobs`.
+
+There are no Azure Pipelines in this repository. Delivery is GitHub Actions — see [`09-why-this-split.md`](09-why-this-split.md).
 
 ---
 
@@ -89,8 +98,8 @@ The pipeline runs on every PR targeting `main`. The Build and SecurityScan stage
 |---|---|---|
 | `*` | `@melrasheed` | Default for everything |
 | `/infra/` | `@melrasheed` | Infrastructure change affects every service |
-| `/pipelines/` | `@melrasheed` | Pipeline change affects every deployment |
-| `/.github/workflows/` | `@melrasheed` | Workflow change affects CI/CD security boundary |
+| `/.github/workflows/` | `@melrasheed` | **Delivery controls live here** — the release gate, environment bindings and rollback are workflow code |
+| `/tools/delivery/boards-gate.mjs` | `@melrasheed` | The release gate itself. Weakening it removes the Sev1 block |
 | `/.github/agents/` | `@melrasheed` | Agent definition change affects AI behaviour across the whole lifecycle |
 | `/.github/copilot-instructions.md` | `@melrasheed` | Grounding context for all agents — a governance change |
 | `/.github/CODEOWNERS` | `@melrasheed` | Changing CODEOWNERS changes who reviews what |
