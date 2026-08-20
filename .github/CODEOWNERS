@@ -12,8 +12,16 @@
 
 # Infrastructure and deployment: a mistake here affects every service
 /infra/                     @melrasheed
-/pipelines/                 @melrasheed
+
+# Delivery controls live in workflow code. The Azure Boards release gate, the
+# environment bindings that enforce production approval, and the rollback logic
+# are all here — changing any of them is a governance change, not a chore.
 /.github/workflows/         @melrasheed
+
+# The release gate itself. Weakening it removes the block on shipping over a
+# known Sev1 defect. The whole workspace is covered so that changes to tests
+# or package.json (which could disable the gate) also require review.
+/tools/delivery/            @melrasheed
 
 # The agent fleet defines how AI behaves across the whole lifecycle.
 # Changing an agent definition silently changes the behaviour of every future

@@ -28,8 +28,10 @@ flowchart LR
   J --> K[Copilot code review + security-reviewer]
   K --> L[test-engineer]
   L --> M[Human approval]
-  M --> N[devops-engineer pipeline + gates]
-  N --> O[Production]
+  M --> N[devops-engineer: GitHub Actions cd.yml]
+  N --> G2{Azure Boards release gate}
+  G2 -->|blocked| A
+  G2 -->|clear| O[Production]
   O --> P[Azure SRE Agent watches]
   P -->|incident| Q[sre-liaison]
   Q --> A
@@ -48,6 +50,8 @@ flowchart LR
 | Test | Every acceptance criterion mapped to a passing test |
 | Release | Human approval recorded, gates passed, rollback documented |
 
+> **Where each system acts.** Refinement, design and threat modelling write to **Azure Boards**. Implementation, review, testing and delivery happen in **GitHub** — CI/CD is GitHub Actions, never Azure Pipelines. The one place Azure DevOps re-enters delivery is the **release gate**: `cd.yml` queries Azure Boards and refuses to deploy while a Sev1/Sev2 is open.
+
 If a gate is not met, **say which one and why, and stop.** Do not proceed and hope.
 
 ## Routing rules
@@ -58,7 +62,7 @@ If a gate is not met, **say which one and why, and stop.** Do not proceed and ho
 - **Implementation** → the **GitHub Copilot coding agent**, via a GitHub issue. You do not write the feature yourself.
 - **Any PR touching API surface, auth, data handling, infra or dependencies** → `security-reviewer`
 - **Coverage gaps, or acceptance criteria without tests** → `test-engineer`
-- **Pipeline, infrastructure, gate or deployment work** → `devops-engineer`
+- **Pipeline, infrastructure, gate or deployment work** → `devops-engineer` (GitHub Actions — never Azure Pipelines)
 - **Post-incident, or reviewing an Azure SRE Agent fix branch** → `sre-liaison`
 - **Cutting a release** → `release-manager`
 

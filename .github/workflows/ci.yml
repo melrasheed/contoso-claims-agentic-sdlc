@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    # This name is the required status check *context* in the branch ruleset.
+    # It is deliberately a short, stable identifier rather than a prose
+    # description: the ruleset matches on this exact string, and a mismatch
+    # means the check is listed as required but never reported, so the branch
+    # looks protected while enforcing nothing. Change this and you must update
+    # the ruleset in the same commit - tools/configure-branch-protection.ps1
+    # verifies the two agree.
+    name: build-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint --workspaces --if-present
+
+      - name: Typecheck
+        run: npm run typecheck --workspaces --if-present
+
+      - name: Test
+        run: npm run test --workspaces --if-present -- --reporter=verbose --coverage
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            **/coverage/**
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Build
+        run: npm run build --workspaces --if-present

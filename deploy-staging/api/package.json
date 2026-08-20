@@ -1,0 +1,25 @@
+{
+  "name": "@contoso/claims-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Contoso Claims REST API - Express 4 + TypeScript reference service for the Agentic SDLC accelerator",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/server.js",
+  "exports": {
+    ".": {
+      "types": "./dist/app.d.ts",
+      "default": "./dist/app.js"
+    }
+  },
+  "dependencies": {
+    "applicationinsights": "^3.4.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "pino": "^9.5.0",
+    "zod": "^3.24.1"
+  },
+  "scripts": {
+    "start": "node dist/server.js"
+  }
+}
